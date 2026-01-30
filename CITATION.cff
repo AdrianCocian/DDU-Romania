@@ -1,0 +1,20 @@
+```yaml
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "DDU Romania Pipeline"
+type: software
+authors:
+  - family-names: "Cocian"
+    given-names: "Adrian"
+license: "MIT"
+repository-code: "REPLACE_WITH_GITHUB_REPO_URL"
+url: "REPLACE_WITH_GITHUB_REPO_URL"
+keywords:
+  - "Dirofilaria"
+  - "DDU"
+  - "vector-borne diseases"
+  - "Romania"
+  - "ERA5-Land"
+  - "climate suitability"
+  - "GIS"
+abstract: "Reproducible pipeline to compute Dirofilaria Development Units (DDU) and temperature-driven transmission season metrics in Romania from hourly ERA5-Land temperature data, including method comparisons, maps, and summary workbooks."
