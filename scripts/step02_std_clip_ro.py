@@ -18,7 +18,7 @@ What it does
     out/03_clip_ro/{YYYY}_{MM}_t2m_hourly_clip.nc
     out/03_clip_ro/png/{YYYY}_{MM}_t2m_hourly_clip_tHH.png (unless --no-png)
 
-Portability (GitHub-ready)
+Portability
 --------------------------
 - Auto-sets DDU_ROOT to repo root (parent of /scripts) if not set.
 - Ensures repo root is in sys.path, so `from config import cfg` works even when running the script directly.
@@ -34,7 +34,7 @@ CLI
   --force-clip           rebuild *_clip.nc even if exists
   --one-per-year         quick-test: process only ONE month per year (prefers selected month(s), else first available)
 
-ENV (optional)
+ENV 
 --------------
   FORCE_STD=1            same as --force-std
   FORCE_CLIP=1           same as --force-clip
