@@ -1,0 +1,49 @@
+name: ddu_romania
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+
+  # core numeric + IO
+  - numpy
+  - pandas
+  - xarray
+  - netcdf4
+  - h5netcdf
+  - cftime
+
+  # CDS / ERA5-Land download + GRIB fallback
+  - cdsapi
+  - cfgrib
+  - eccodes
+
+  # GIS / clipping / rasters
+  - geopandas
+  - shapely
+  - pyproj
+  - rasterio
+  - rioxarray
+
+  # plots
+  - matplotlib
+
+  # progress
+  - tqdm
+
+  # needed (step03 uses dask)
+  - dask-core
+
+  # stats required by step08
+  - scipy
+
+  # Excel required by step06/step08
+  - xlsxwriter
+
+  # pip-only dependency used by step08
+  - pip
+  - pip:
+      - diptest
+
+- xlsxwriter
+  - imageio
+  - openpyxl
