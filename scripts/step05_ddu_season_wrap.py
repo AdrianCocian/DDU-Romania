@@ -39,10 +39,28 @@ cfg.DIR_FILLED                 : <ROOT>/out/06_filled_yearly/{YYYY}.nc
 cfg.DIR_FILLED_TAILS           : <ROOT>/out/06_filled_yearly_tails_29d/{YYYY-1}_tail29d.nc  (win30)
 cfg.DIR_FILLED_TAILS_14        : <ROOT>/out/06_filled_yearly_tails_14d/{YYYY-1}_tail14d.nc  (win15)
 
+Season definition (manuscript, section 2.3)
+--------------------------------------------
+- Daily DDU by four methods (Table 1): min-max average ("midpoint"), hourly average
+  ("daily_mean"), hourly sum ("hourly_sum", degree-hours) and Baskerville-Emin sine ("be_sine").
+- A day is transmission-suitable when the DDU accumulated over the 30 days ending on that day
+  is >= 130 DDU (daily methods) or >= 3120 degree-hours (hourly sum). Days at or below 14 C add
+  nothing but do not reset the window. The first 29 days of a year use the last 29 days of the
+  previous year (tails from step04; used from YEAR_WRAP_START = 2006 onward).
+- 3-day rule: a season is a run of suitable days that ends when three or more consecutive days
+  are unsuitable; gaps of one or two unsuitable days stay inside the season. In split_runs() a new
+  run starts when the next suitable day is >= MIN_GAP_DAYS days after the previous one, so
+  MIN_GAP_DAYS = 4 (config.py, default) bridges at most 2 unsuitable days. The longest run of the
+  year is the season; season_length = end - start + 1 (bridged days included); total_eip_days
+  counts every suitable day of the year, also outside the season.
+- Day of year (DOY) is counted on a 365-day basis: 29 February is omitted in leap years, so a
+  given DOY is the same calendar date in every year.
+
 Usage
 -----
-python scripts/step05_ddu_season_wrap.py --years 2005-2024 --windows 30,15 --excel
+python scripts/step05_ddu_season_wrap.py --years 2005-2024 --windows 30 --excel
 python scripts/step05_ddu_season_wrap.py --years 2024-2024 --windows 30 --final-only
+python scripts/step05_ddu_season_wrap.py --min-gap 4        (explicit 3-day rule; same as default)
 
 ENV
 ---
@@ -93,9 +111,15 @@ else:
     guess = this.parent.parent if this.parent.name.lower() == "scripts" else this.parent
     repo_root = _find_repo_root(guess)
 
-os.environ.setdefault("DDU_ROOT", str(repo_root))
-if str(repo_root) not in sys.path:
-    sys.path.insert(0, str(repo_root))
+if _root_cli:
+    os.environ["DDU_ROOT"] = str(repo_root)          # --root wins over an inherited DDU_ROOT
+else:
+    os.environ.setdefault("DDU_ROOT", str(repo_root))
+_this_py = Path(__file__).resolve()
+_code_root = _this_py.parent.parent if _this_py.parent.name.lower() == "scripts" else _this_py.parent
+for _p in (str(repo_root), str(_code_root)):   # this repository's config.py / ddu_stats.py come first
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 # Import config after bootstrap
 from config import cfg  # noqa: E402
@@ -114,7 +138,7 @@ THRESH_DH_30D = float(getattr(cfg, "THRESH_DH_30D", 3120.0))
 THRESH_DD_15D = float(getattr(cfg, "THRESH_DD_15D", THRESH_DD_30D))
 THRESH_DH_15D = float(getattr(cfg, "THRESH_DH_15D", THRESH_DH_30D))
 
-MIN_GAP_DAYS = int(getattr(cfg, "MIN_GAP_DAYS", 10))
+MIN_GAP_DAYS = int(getattr(cfg, "MIN_GAP_DAYS", 4))   # 4 = 3-day rule (see docstring); override: --min-gap
 USE_YEAR_WRAP = bool(getattr(cfg, "USE_YEAR_WRAP", True))
 YEAR_WRAP_START = int(getattr(cfg, "YEAR_WRAP_START", 2006))
 VALIDATE_TAIL = bool(getattr(cfg, "VALIDATE_TAIL", True))
@@ -128,7 +152,7 @@ DIR_IN_FILLED = Path(getattr(cfg, "DIR_FILLED", ROOT / "out" / "06_filled_yearly
 DIR_TAILS_29 = Path(getattr(cfg, "DIR_FILLED_TAILS", ROOT / "out" / "06_filled_yearly_tails_29d"))
 DIR_TAILS_14 = Path(getattr(cfg, "DIR_FILLED_TAILS_14", ROOT / "out" / "06_filled_yearly_tails_14d"))
 
-RUN_ID = f"{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+RUN_ID = f"{datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
 VAR_MAP = {
     "midpoint": "DDU_midpoint",
@@ -250,7 +274,12 @@ def roll_eip_window(ddu_day, thr, window_days):
 
 
 def split_runs(eip_bool: np.ndarray, min_gap: int):
-    """Split into runs; break when the gap between True indices is >= min_gap."""
+    """Split suitable days into runs.
+
+    A new run starts when the index difference between consecutive suitable days is >= min_gap,
+    i.e. when >= (min_gap - 1) consecutive unsuitable days separate them. With min_gap = 4 a gap of
+    1-2 unsuitable days is bridged and a gap of >= 3 days ends the run (3-day rule).
+    """
     idx = np.flatnonzero(eip_bool)
     if idx.size == 0:
         return []
@@ -508,7 +537,7 @@ def _summary_row_from_season_df(df: pd.DataFrame, year: int, window_days: int, m
 
         "year_wrap_used": year_wrap_used,
         "year_wrap_note": year_wrap_note,
-        "created_utc": datetime.datetime.utcnow().isoformat(timespec="seconds"),
+        "created_utc": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds"),
     }
     return row
 
@@ -580,6 +609,38 @@ def _prev_tail_ddu(year: int, method: str, lat: str, lon: str,
         return ddu_p, True, "ok"
 
 
+# ------------------------- settings stamp (safe reuse of per-year files) -------------------------
+def _settings_stamp(window_days: int, thr_dd: float, thr_dh: float) -> dict:
+    return {"tbase_c": float(TBASE), "window_days": int(window_days), "thresh_dd_window": float(thr_dd),
+            "thresh_dh_window": float(thr_dh), "min_gap_days": int(MIN_GAP_DAYS),
+            "use_year_wrap": bool(USE_YEAR_WRAP), "year_wrap_start": int(YEAR_WRAP_START)}
+
+
+def _stamp_path(dir_csv: Path, year: int) -> Path:
+    return dir_csv / f"{year}_settings.json"
+
+
+def _stamp_matches(dir_csv: Path, year: int, stamp: dict) -> bool:
+    """Per-year files are reused only if they were written with exactly the current settings."""
+    sp = _stamp_path(dir_csv, year)
+    if not sp.exists():
+        return False
+    try:
+        old = json.loads(sp.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return all(old.get(k) == v for k, v in stamp.items())
+
+
+def _window_thresholds(window_days: int):
+    """(DDU threshold, degree-hour threshold) of a window; 30 d: 130 DDU / 3120 degree-hours."""
+    if window_days == 30:
+        return THRESH_DD_30D, THRESH_DH_30D
+    if window_days == 15:
+        return THRESH_DD_15D, THRESH_DH_15D
+    return THRESH_DD_30D * (window_days / 30.0), THRESH_DH_30D * (window_days / 30.0)
+
+
 # ------------------------- processing core -------------------------
 def process_year_window(year: int, methods, window_days: int, outstep: str,
                         save_parquet=False, force=False, final_only=False):
@@ -599,6 +660,14 @@ def process_year_window(year: int, methods, window_days: int, outstep: str,
     dir_root = ROOT / "out" / outstep / f"win{window_days}"
     dir_csv = dir_root / "csv"
     dir_csv.mkdir(parents=True, exist_ok=True)
+
+    # Never reuse per-year files computed with other settings (e.g. the old 10-day gap rule).
+    stamp = _settings_stamp(window_days, thr_dd, thr_dh)
+    if not force and not _stamp_matches(dir_csv, year, stamp):
+        if any(dir_csv.glob(f"{year}_season_*.csv")):
+            print(f"[!] {year} (win{window_days}): existing per-year files have no/other settings stamp "
+                  f"-> recomputing with MIN_GAP_DAYS={MIN_GAP_DAYS}")
+        force = True
 
     # ---- FINAL-ONLY FAST REUSE (season CSV exists) ----
     if final_only and (not force):
@@ -656,6 +725,7 @@ def process_year_window(year: int, methods, window_days: int, outstep: str,
         print(f"[!] missing: {src}")
         return dir_csv, pd.DataFrame(columns=SEASON_COLS), pd.DataFrame(columns=SUMMARY_COLS)
 
+    _safe_unlink(_stamp_path(dir_csv, year))   # a crash mid-year must not leave a valid stamp behind
     ds = xr.open_dataset(src, decode_timedelta=True)
     t2m = ds["t2m"]
     lat_name, lon_name = _latlon(t2m)
@@ -755,6 +825,7 @@ def process_year_window(year: int, methods, window_days: int, outstep: str,
     ds.close()
 
     if not final_only:
+        _stamp_path(dir_csv, year).write_text(json.dumps(stamp, indent=2), encoding="utf-8")
         meta = {
             "run_id": RUN_ID,
             "years": None,
@@ -764,14 +835,21 @@ def process_year_window(year: int, methods, window_days: int, outstep: str,
             "thresh_dd_window": float(thr_dd),
             "thresh_dh_window": float(thr_dh),
             "min_gap_days": int(MIN_GAP_DAYS),
+            "bridged_unsuitable_days_max": int(MIN_GAP_DAYS) - 2,
+            "season_ends_after_consecutive_unsuitable_days": int(MIN_GAP_DAYS) - 1,
+            "season_definition": ("longest run of transmission-suitable days after bridging; start/end = first/last "
+                                  "day of that run; season_length = end - start + 1 (bridged days included); "
+                                  "total_eip_days = all suitable days of the year"),
+            "doy_convention": "365-day basis (29 February omitted in leap years)",
             "use_year_wrap": bool(USE_YEAR_WRAP),
+            "year_wrap_start": int(YEAR_WRAP_START),
             "dirs": {
                 "root": str(ROOT),
                 "in_filled": str(DIR_IN_FILLED),
                 "in_tails": str(dir_tails),
                 "out_csv": str(dir_csv),
             },
-            "timestamp_utc": datetime.datetime.utcnow().isoformat(timespec="seconds"),
+            "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds"),
         }
         with open(dir_csv / "META.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
@@ -837,8 +915,10 @@ def _write_excel_summary(win_dir_csv: Path, window_days: int, years, methods, ru
         "thresh_dd_15d": THRESH_DD_15D,
         "thresh_dh_15d": THRESH_DH_15D,
         "min_gap_days": MIN_GAP_DAYS,
+        "bridged_unsuitable_days_max": MIN_GAP_DAYS - 2,
+        "season_ends_after_consecutive_unsuitable_days": MIN_GAP_DAYS - 1,
         "use_year_wrap": USE_YEAR_WRAP,
-        "created_utc": datetime.datetime.utcnow().isoformat(timespec="seconds"),
+        "created_utc": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds"),
     }])
 
     sheets = {
@@ -877,6 +957,8 @@ def parse_args():
     p.add_argument("--excel", action="store_true", help="write Excel per window (ignored in --final-only)")
     p.add_argument("--final-only", action="store_true",
                    help="write ONLY season_ALL_YEARS_methods.csv + summary_ALL_YEARS_methods.csv (no intermediates)")
+    p.add_argument("--min-gap", type=int, default=None,
+                   help="override MIN_GAP_DAYS (default from config.py: 4 = 3-day rule; must be >= 2)")
     return p.parse_args()
 
 
@@ -886,6 +968,11 @@ if __name__ == "__main__":
     if args.root:
         ROOT = Path(args.root).expanduser().resolve()
         os.environ["DDU_ROOT"] = str(ROOT)
+
+    if args.min_gap is not None:
+        if args.min_gap < 2:
+            raise SystemExit("--min-gap must be >= 2 (2 = no bridging; 4 = 3-day rule)")
+        MIN_GAP_DAYS = int(args.min_gap)
 
     cfg_years = getattr(cfg, "YEARS", [])
     YEARS = _expand_years(args.years, cfg_years)
@@ -900,6 +987,25 @@ if __name__ == "__main__":
     print(f"[CFG] TAILS_29={DIR_TAILS_29}   TAILS_14={DIR_TAILS_14} (optional)")
     print(f"[CFG] YEARS={YEARS[0]}–{YEARS[-1]}  Tbase={TBASE}°C  Windows={WINDOWS}")
     print(f"[CFG] Methods={METHODS}  OUTSTEP={args.outstep}  FORCE={'ON' if args.force else 'OFF'}  FINAL_ONLY={'ON' if args.final_only else 'OFF'}")
+    print(f"[CFG] MIN_GAP_DAYS={MIN_GAP_DAYS}: season ends after >= {MIN_GAP_DAYS - 1} consecutive unsuitable days "
+          f"(bridges <= {MIN_GAP_DAYS - 2})")
+
+    # Pre-flight: every year must be reusable (per-year files with the current settings stamp) or
+    # computable (hourly NetCDF present). Otherwise stop here, before an existing
+    # season_ALL_YEARS_methods.csv could be deleted (--final-only) or overwritten with fewer years.
+    blocked = []
+    for window_days in WINDOWS:
+        dcsv = ROOT / "out" / args.outstep / f"win{window_days}" / "csv"
+        stamp = _settings_stamp(window_days, *_window_thresholds(window_days))
+        for y in YEARS:
+            reusable = ((not args.force) and _stamp_matches(dcsv, y, stamp)
+                        and any(dcsv.glob(f"{y}_season_*.csv")))
+            if not reusable and not (DIR_IN_FILLED / f"{y}.nc").exists():
+                blocked.append(f"win{window_days}/{y}")
+    if blocked:
+        raise SystemExit("[step05] stopped, nothing written. These years have neither an input file "
+                         f"{DIR_IN_FILLED}/<YEAR>.nc nor per-year results with the current settings: "
+                         + ", ".join(blocked))
 
     t0_all = time.time()
 
@@ -984,7 +1090,7 @@ if __name__ == "__main__":
                     "methods": ",".join(METHODS),
                     "ok": 1,
                     "duration_sec": round(time.time() - t0, 2),
-                    "timestamp_utc": datetime.datetime.utcnow().isoformat(timespec="seconds"),
+                    "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds"),
                     "out_csv": str(out_csv_dir),
                 })
             except Exception as e:
@@ -997,7 +1103,7 @@ if __name__ == "__main__":
                     "ok": 0,
                     "error": str(e),
                     "duration_sec": round(time.time() - t0, 2),
-                    "timestamp_utc": datetime.datetime.utcnow().isoformat(timespec="seconds"),
+                    "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat(timespec="seconds"),
                 })
 
         if run_log_win:

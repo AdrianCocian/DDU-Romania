@@ -50,12 +50,16 @@ def _to_jsonable(x: Any) -> Any:
 
 
 def _default_shp_candidates(root: Path) -> List[Path]:
-    return [
-        root / "data" / "boundaries" / "ro_frontiera_poligon" / "ro_frontiera_poligon.shp",
-        root / "data" / "boundaries" / "ro_frontiera_poligon.shp",
-        root / "ro_frontiera_poligon.shp",
-        root / "ro_frontiera_poligon" / "ro_frontiera_poligon.shp",
-    ]
+    code_root = Path(__file__).resolve().parent   # the boundary shipped with the repository
+    cands = []
+    for r in (root, code_root):
+        cands += [
+            r / "data" / "boundaries" / "ro_frontiera_poligon" / "ro_frontiera_poligon.shp",
+            r / "data" / "boundaries" / "ro_frontiera_poligon.shp",
+            r / "ro_frontiera_poligon.shp",
+            r / "ro_frontiera_poligon" / "ro_frontiera_poligon.shp",
+        ]
+    return list(dict.fromkeys(cands))
 
 
 def _pick_default_shp(root: Path) -> Path:
@@ -92,7 +96,45 @@ class CFG:
     THRESH_DH_30D: float = 3120.0
     THRESH_DD_15D: float = 130.0
     THRESH_DH_15D: float = 3120.0
-    MIN_GAP_DAYS: int = 10
+
+    # Season rule (manuscript section 2.3): a transmission season is a run of suitable days that
+    # ends when THREE or more consecutive days are unsuitable; interruptions of one or two unsuitable
+    # days stay inside the season ("3-day rule", a grouping convention: it changes the reported season
+    # span, not whether a single day meets the 130-DDU/30-day criterion).
+    # Implementation (scripts/step05_ddu_season_wrap.py, split_runs): a new run starts when the next
+    # suitable day is >= MIN_GAP_DAYS days after the previous suitable day, so at most MIN_GAP_DAYS - 2
+    # unsuitable days are bridged.  MIN_GAP_DAYS = 4  <=>  gaps of 1-2 days bridged, >= 3 days split.
+    # (The version on 'master' before revision 2 used 10, i.e. up to 8 bridged days.)
+    MIN_GAP_DAYS: int = field(default_factory=lambda: int(_env_first("DDU_MIN_GAP") or 4))
+
+    # Methods (pipeline keys are kept for file compatibility; labels are the names used in the paper)
+    METHODS: List[str] = field(default_factory=lambda: ["midpoint", "daily_mean", "hourly_sum", "be_sine"])
+    METHOD_LABELS: Dict[str, str] = field(default_factory=lambda: {
+        "midpoint": "Min–max average",      # (Tmin + Tmax) / 2
+        "daily_mean": "Hourly average",          # mean of the 24 hourly temperatures
+        "hourly_sum": "Hourly sum",              # reference method
+        "be_sine": "BE-sine",                    # Baskerville-Emin sine
+        "consensus": "Consensus",                # per-cell median across the four methods
+    })
+    METHOD_COLORS: Dict[str, str] = field(default_factory=lambda: {
+        "midpoint": "#1f77b4", "daily_mean": "#ff7f0e", "hourly_sum": "#2ca02c", "be_sine": "#d62728",
+        "consensus": "#000000",
+    })
+    REF_METHOD: str = "hourly_sum"
+    # Pairs for the paired differences, delta = method1 - method2 (order of Tables 4, S2, S4, S7)
+    PAIRS: List[Tuple[str, str]] = field(default_factory=lambda: [
+        ("be_sine", "hourly_sum"), ("daily_mean", "be_sine"), ("daily_mean", "hourly_sum"),
+        ("midpoint", "be_sine"), ("midpoint", "daily_mean"), ("midpoint", "hourly_sum"),
+    ])
+    REFERENCE_YEARS: List[int] = field(default_factory=lambda: [2005, 2011, 2017, 2024])
+
+    # Relative climatic suitability classes (Table 2): quantile bands of hourly-sum season length
+    # among cell-years with a season, pooled over all years (P25, P50, P75, P90); class 0 = no season.
+    CLASS_PERCENTILES: List[float] = field(default_factory=lambda: [25, 50, 75, 90])
+    CLASS_LABELS: List[str] = field(default_factory=lambda: [
+        "0 no season", "1 lowest", "2 below median", "3 above median", "4 high", "5 highest"])
+    CLASS_COLORS: List[str] = field(default_factory=lambda: [
+        "#e6e6e6", "#4da3ff", "#66c2a5", "#a6d854", "#fdae61", "#d73027"])
 
     VALID_RANGE_TEMP: Tuple[float, float] = (-60.0, 60.0)
     FILL_PCT_LOW_CONF_THRESH: float = 0.30
@@ -159,6 +201,12 @@ class CFG:
     DIR_DDU_SEASON: Path = field(init=False, repr=False)
     DIR_DDU_SEASON_WRAP: Path = field(init=False, repr=False)
     DIR_METHOD_COMPARE: Path = field(init=False)
+
+    # Sub-folders of <ROOT>/out/12_method_compare/win<W>/ written by steps 06-10
+    STEP6_DIRNAME: str = "6_method_comparison"
+    STEP7_DIRNAME: str = "7_suitability_classes"
+    STEP8_DIRNAME: str = "8_statistics"
+    PACK_DIRNAME: str = "00_MANUSCRIPT_PACK"
 
     NC_NAME_FMT: str = "season_swrap_{year}_{method}.nc"
     CSV_NAME_FMT: str = "season_swrap_{year}_{method}.csv"
@@ -318,7 +366,12 @@ class CFG:
             if cand:
                 self.YEARS = sorted(set(cand))
 
-        print(f"[CFG] ROOT={self.ROOT} | SHP={self.SHP_RO} | YEARS={self.YEARS[0]}-{self.YEARS[-1]} | WIN={self.WINDOW_DAYS}d")
+        if int(self.MIN_GAP_DAYS) < 2:
+            raise ValueError(f"[CFG][ERROR] MIN_GAP_DAYS must be >= 2 (got {self.MIN_GAP_DAYS})")
+
+        print(f"[CFG] ROOT={self.ROOT} | SHP={self.SHP_RO} | YEARS={self.YEARS[0]}-{self.YEARS[-1]} | WIN={self.WINDOW_DAYS}d"
+              f" | MIN_GAP_DAYS={self.MIN_GAP_DAYS} (season ends after >= {self.MIN_GAP_DAYS - 1} consecutive"
+              f" unsuitable days)")
 
         if self.MKDIR_MODE in {"base", "all"}:
             try:
@@ -347,6 +400,7 @@ class CFG:
                 "DDU_ROOT": os.environ.get("DDU_ROOT"),
                 "DDU_SHP_RO": os.environ.get("DDU_SHP_RO"),
                 "DDU_MKDIR": os.environ.get("DDU_MKDIR"),
+                "DDU_MIN_GAP": os.environ.get("DDU_MIN_GAP"),
             },
             "_timestamp": self.RUN_TS,
         })
