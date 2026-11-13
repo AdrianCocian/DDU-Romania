@@ -22,6 +22,14 @@ for p in (str(REPO / "tests"), str(REPO)):
         sys.path.insert(0, p)
 
 
+def run_script(args, env=None, timeout=900):
+    """Run a script of the repository; output decoded as UTF-8 whatever the code page of the system."""
+    import subprocess
+    e = dict(os.environ if env is None else env, PYTHONIOENCODING="utf-8", MPLBACKEND="Agg")
+    return subprocess.run([sys.executable, *[str(a) for a in args]], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", env=e, timeout=timeout, cwd=str(REPO))
+
+
 def _load_script(name: str):
     spec = importlib.util.spec_from_file_location(name, REPO / "scripts" / f"{name}.py")
     mod = importlib.util.module_from_spec(spec)
@@ -32,6 +40,11 @@ def _load_script(name: str):
 @pytest.fixture(scope="session")
 def step05():
     return _load_script("step05_ddu_season_wrap")
+
+
+@pytest.fixture(scope="session")
+def step03b():
+    return _load_script("step03b_qc_fill_year")
 
 
 @pytest.fixture(scope="session")

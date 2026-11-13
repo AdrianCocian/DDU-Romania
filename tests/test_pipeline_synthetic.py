@@ -1,14 +1,12 @@
-"""End-to-end: steps 5-10 on a small synthetic dataset (no download, about 2 minutes)."""
+"""End-to-end: steps 5-10 on a small synthetic dataset (no download)."""
 import json
 import os
-import subprocess
-import sys
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from conftest import REPO, SHP
+from conftest import REPO, SHP, run_script
 from synthetic import make_synthetic_root
 
 pytestmark = pytest.mark.slow
@@ -17,10 +15,9 @@ pytestmark = pytest.mark.slow
 @pytest.fixture(scope="module")
 def run(tmp_path_factory):
     root = make_synthetic_root(tmp_path_factory.mktemp("synthetic"))
-    env = dict(os.environ, DDU_ROOT=str(root), DDU_SHP_RO=str(SHP), MPLBACKEND="Agg")
-    r = subprocess.run([sys.executable, str(REPO / "run_pipeline.py"), "--root", str(root), "--years", "2005-2008",
-                        "--from", "5", "--to", "10", "--no-maps", "--map-years", "2005,2006,2007,2008"],
-                       capture_output=True, text=True, env=env, timeout=900)
+    env = dict(os.environ, DDU_ROOT=str(root), DDU_SHP_RO=str(SHP))
+    r = run_script([REPO / "run_pipeline.py", "--root", root, "--years", "2005-2008", "--from", "5", "--to", "10",
+                    "--no-maps", "--map-years", "2005,2006,2007,2008"], env=env)
     assert r.returncode == 0, (r.stdout[-3000:], r.stderr[-3000:])
     return root
 
@@ -31,8 +28,12 @@ def test_season_file(run):
     assert set(df["method"]) == {"midpoint", "daily_mean", "hourly_sum", "be_sine"}
     assert df.groupby(["year", "method"]).size().eq(11).all()          # 12 cells, one outside the mask
     s = df.dropna(subset=["season_start_doy"])
-    assert ((s["season_end_doy"] - s["season_start_doy"] + 1) == s["season_length"]).all()
-    assert (df["total_eip_days"] >= df["season_length"]).all()
+    days = (pd.to_datetime(s["season_end"]) - pd.to_datetime(s["season_start"])).dt.days + 1
+    assert (days == s["season_length"]).all()                          # length = days from onset to end, inclusive
+    # total EIP days counts suitable days only: inside the season it cannot exceed the length (bridged days are
+    # unsuitable), and suitable days outside the season add to it
+    inside = df["total_eip_days"] - df["outside_eip_days"]
+    assert ((inside >= 0) & (inside <= df["season_length"])).all()
     meta = json.loads((csv / "META.json").read_text(encoding="utf-8"))
     assert meta["min_gap_days"] == 4 and meta["season_ends_after_consecutive_unsuitable_days"] == 3
 

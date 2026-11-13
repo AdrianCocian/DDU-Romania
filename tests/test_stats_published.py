@@ -1,13 +1,12 @@
 """Statistics in ddu_stats.py reproduce the archived tables of the published run."""
-import subprocess
-import sys
+import shutil
 
 import numpy as np
 import pandas as pd
 import pytest
 
 import ddu_stats as ds
-from conftest import REPO
+from conftest import REPO, run_script
 
 
 # ---------------------------------------------------------------- Mann-Kendall / Sen
@@ -75,9 +74,8 @@ def test_step07_reproduces_published_class_counts(published, tmp_path):
                    var_name="method", value_name="season_length")
     season_csv = tmp_path / "season_ALL_YEARS_methods.csv"
     long.to_csv(season_csv, index=False)
-    r = subprocess.run([sys.executable, str(REPO / "scripts" / "step07_suitability_classes.py"),
-                        "--root", str(tmp_path), "--season-csv", str(season_csv), "--no-maps"],
-                       capture_output=True, text=True)
+    r = run_script([REPO / "scripts" / "step07_suitability_classes.py",
+                    "--root", tmp_path, "--season-csv", season_csv, "--no-maps"])
     assert r.returncode == 0, r.stderr[-2000:]
     out = tmp_path / "out" / "12_method_compare" / "win30" / "7_suitability_classes"
     import json
@@ -92,8 +90,8 @@ def test_step07_reproduces_published_class_counts(published, tmp_path):
     assert np.allclose(m["pct"], m["pct_ref"])
 
 
-def test_manuscript_check_passes_on_published_tables(published, tmp_path):
-    """tools/check_against_manuscript.py, Part A, on the archived tables (season length numbers)."""
+def test_tables_from_published_lengths_equal_archive(published, tmp_path):
+    """step09 on the published season lengths reproduces the archived tables of the published run."""
     import json
     pc = pd.read_csv(published / "per_cell_classes_ALL_YEARS.csv")
     methods = ["midpoint", "daily_mean", "hourly_sum", "be_sine"]
@@ -102,12 +100,63 @@ def test_manuscript_check_passes_on_published_tables(published, tmp_path):
     season_csv = tmp_path / "season.csv"
     long.to_csv(season_csv, index=False)
     pack = tmp_path / "pack"
-    r = subprocess.run([sys.executable, str(REPO / "scripts" / "step09_manuscript_statistics.py"),
-                        "--season-csv", str(season_csv), "--out", str(pack), "--variables", "season_length",
-                        "--no-excel"], capture_output=True, text=True)
+    r = run_script([REPO / "scripts" / "step09_manuscript_statistics.py", "--season-csv", season_csv, "--out", pack,
+                    "--variables", "season_length", "--no-excel"])
     assert r.returncode == 0, r.stderr[-2000:]
-    r = subprocess.run([sys.executable, str(REPO / "tools" / "check_against_manuscript.py"), "--pack", str(pack)],
-                       capture_output=True, text=True)
+    assert json.loads((pack / "key_numbers.json").read_text(encoding="utf-8"))["n_cell_years_with_season_hourly_sum"] == 53278
+    # tables written by this code from the published season lengths = archived tables (season length rows)
+    r = run_script([REPO / "tools" / "check_against_manuscript.py", "--pack", pack, "--only-tables"])
+    lines = {l.split()[0]: l for l in r.stdout.splitlines() if l.startswith("  T") or l.startswith("  per_cell")}
+    for name in ("T4_class_agreement_pooled", "T4b_class_agreement_by_year", "T7_suitability_class_counts_by_year",
+                 "T8_bias_by_reference_class", "T9_median_gap_diagnostic", "per_cell_classes_ALL_YEARS"):
+        assert lines[name].rstrip().endswith("OK"), lines[name]
+    # only season length was given, so the tables that also hold onset, end and total EIP days are incomplete here
+    for name in ("T1_trend_MK_Sen_all_methods", "T2_distribution_diagnostics_summary", "T3",
+                 "T5_national_summary_all_methods", "T6b_pairwise_delta_by_year"):
+        assert "rows present on one side only" in lines[name] and "max rel. diff" not in lines[name], lines[name]
+
+
+# ---------------------------------------------------------------- numbers printed in the manuscript
+def test_every_number_quoted_in_the_manuscript_is_in_the_archived_tables(published):
+    """Part A of the check on the archived tables: all four variables, classes, agreement, trends."""
+    r = run_script([REPO / "tools" / "check_against_manuscript.py", "--pack", published, "--only-manuscript"])
     assert r.returncode == 0, r.stdout[-3000:]
-    assert "all checks passed" in r.stdout
-    assert json.loads((pack / "key_numbers.json").read_text())["n_cell_years_with_season_hourly_sum"] == 53278
+    assert "[BAD]" not in r.stdout
+    n = [l for l in r.stdout.splitlines() if l.strip().startswith("Part A:")][0].split()
+    assert n[2] == n[4] and int(n[4]) >= 160
+
+
+def test_manuscript_check_detects_a_changed_value(published, tmp_path):
+    """The check must fail when a table no longer supports the text: one national median changed by one day."""
+    pack = tmp_path / "changed"
+    shutil.copytree(published, pack)
+    t5 = pd.read_csv(pack / "T5_national_summary_all_methods.csv")
+    sel = (t5.variable == "season_length") & (t5.method == "consensus") & (t5.year == 2024)
+    assert sel.sum() == 1
+    t5.loc[sel, "median"] += 1.0
+    t5.to_csv(pack / "T5_national_summary_all_methods.csv", index=False)
+    r = run_script([REPO / "tools" / "check_against_manuscript.py", "--pack", pack])
+    assert r.returncode == 1
+    assert "[BAD] Consensus season length 2024, median (days)" in r.stdout
+    assert "T5_national_summary_all_methods" in r.stdout and "DIFFERENT" in r.stdout
+
+
+# ---------------------------------------------------------------- study domain
+def test_published_cells_are_the_cells_touched_by_the_national_boundary(published):
+    """2,912 cells = the 0.1-degree cells that the boundary polygon touches (2,937) minus 25 cells on the Black Sea
+    coast and the coastal lagoons for which ERA5-Land has no value."""
+    gpd = pytest.importorskip("geopandas")
+    from shapely.geometry import box
+    from shapely.prepared import prep
+    from conftest import SHP
+
+    cells = pd.read_csv(published / "per_cell_classes_ALL_YEARS.csv", usecols=["year", "lat", "lon"])
+    cells = cells[cells["year"] == 2005]
+    have = {(round(float(a), 1), round(float(b), 1)) for a, b in zip(cells["lat"], cells["lon"])}
+    polygon = prep(gpd.read_file(SHP).to_crs(4326).union_all())
+    lats, lons = np.round(np.arange(43.5, 48.5001, 0.1), 1), np.round(np.arange(19.9, 30.1001, 0.1), 1)
+    touched = {(float(y), float(x)) for y in lats for x in lons if polygon.intersects(box(x - 0.05, y - 0.05, x + 0.05, y + 0.05))}
+    assert len(have) == 2912 and len(touched) == 2937
+    assert have <= touched
+    without_data = touched - have
+    assert len(without_data) == 25 and min(x for _, x in without_data) >= 28.6
