@@ -15,8 +15,9 @@ All functions are pure (no file I/O) so that they can be unit-tested
 - Relative climatic suitability classes: quantile bands (P25, P50, P75, P90)
   of the hourly-sum season length among cell-years with a season, pooled
   over all years; class 0 = no season.
-- Day of year (DOY) is counted on a 365-day basis (29 February omitted in
-  leap years), so a DOY always maps to the same calendar date.
+- Day of year (DOY) is numbered on a 365-day basis (in leap years 29 February
+  shares day 59 with 28 February), so a DOY always maps to the same calendar
+  date. No day is left out of the calculation.
 """
 from __future__ import annotations
 
@@ -38,7 +39,7 @@ _NONLEAP = _dt.date(2001, 1, 1)   # any non-leap year: DOY n -> same date every 
 
 
 def doy_to_date(doy: int) -> _dt.date:
-    """Calendar date of an integer DOY on the 365-day basis (29 February omitted)."""
+    """Calendar date of an integer DOY on the 365-day basis (day 59 = 28 February in every year)."""
     d = int(doy)
     if not 1 <= d <= 365:
         raise ValueError(f"DOY out of range 1..365: {doy}")

@@ -158,7 +158,13 @@ def _write_atomic(ds: xr.Dataset, dst: Path, encoding: Dict[str, Any]) -> None:
     dst = Path(dst)
     tmp = dst.with_suffix(dst.suffix + ".tmp")
     try:
-        ds.to_netcdf(tmp, encoding=encoding, engine="h5netcdf", mode="w")
+        try:
+            ds.to_netcdf(tmp, encoding=encoding, engine="h5netcdf", mode="w")
+        except (ImportError, ModuleNotFoundError, ValueError):
+            # h5netcdf or h5py not installed: same file content through the netCDF4 library
+            if tmp.exists():
+                tmp.unlink()
+            ds.to_netcdf(tmp, encoding=encoding, engine="netcdf4", mode="w")
         if dst.exists():
             dst.unlink()
         tmp.replace(dst)

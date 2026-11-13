@@ -2032,7 +2032,7 @@ def main():
     ap.add_argument("--fig-dpi", type=int, default=180)
 
     ap.add_argument("--outline-shp", type=str, default=DEFAULT_OUTLINE_SHP,
-                    help="EPSG:4326 shapefile/geojson/zip for outline")
+                    help="boundary file for the map outline (any coordinate system; reprojected to EPSG:4326)")
 
     ap.add_argument("--map-kind", type=str, default="grid", choices=["grid", "tri", "scatter"])
     ap.add_argument("--article-thr", type=str, default="5,10", help="Thresholds for |Δ|≤T tables")

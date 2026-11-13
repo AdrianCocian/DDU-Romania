@@ -13,6 +13,21 @@ import logging
 import numpy as np
 
 
+def use_utf8_output() -> None:
+    """Write console output as UTF-8 on every platform.
+
+    The steps print symbols and diacritics; when the output of a Windows process is piped or redirected, Python
+    encodes it with the ANSI code page, which cannot represent them and stops the step with UnicodeEncodeError."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+use_utf8_output()
+
+
 def _env_first(*keys: str) -> Optional[str]:
     for k in keys:
         v = os.environ.get(k)

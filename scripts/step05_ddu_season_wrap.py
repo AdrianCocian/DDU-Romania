@@ -51,10 +51,12 @@ Season definition (manuscript, section 2.3)
   are unsuitable; gaps of one or two unsuitable days stay inside the season. In split_runs() a new
   run starts when the next suitable day is >= MIN_GAP_DAYS days after the previous one, so
   MIN_GAP_DAYS = 4 (config.py, default) bridges at most 2 unsuitable days. The longest run of the
-  year is the season; season_length = end - start + 1 (bridged days included); total_eip_days
-  counts every suitable day of the year, also outside the season.
-- Day of year (DOY) is counted on a 365-day basis: 29 February is omitted in leap years, so a
-  given DOY is the same calendar date in every year.
+  year is the season; season_length = number of days from the first to the last day of the run,
+  both included (bridged days and, in leap years, 29 February count); total_eip_days counts every
+  suitable day of the year, also outside the season.
+- Day of year (DOY) is numbered on a 365-day basis: in leap years 29 February shares day 59 with
+  28 February, so a given DOY is the same calendar date in every year. No day is left out of
+  the calculation.
 
 Usage
 -----
@@ -753,6 +755,9 @@ def process_year_window(year: int, methods, window_days: int, outstep: str,
                 _, eip_e = roll_eip_window(ext, thr, window_days)
                 eip = eip_e.isel(time=slice(pad_days, None))
             else:
+                if meth == methods[0]:
+                    print(f"[!] {year} (win{window_days}): tail of {year - 1} not usable ({wrap_note}) in {dir_tails} "
+                          f"-> no year wrap: the first {pad_days} days of {year} cannot be suitable. Run step04 first.")
                 _, eip = roll_eip_window(ddu_day, thr, window_days)
         else:
             _, eip = roll_eip_window(ddu_day, thr, window_days)
@@ -840,7 +845,7 @@ def process_year_window(year: int, methods, window_days: int, outstep: str,
             "season_definition": ("longest run of transmission-suitable days after bridging; start/end = first/last "
                                   "day of that run; season_length = end - start + 1 (bridged days included); "
                                   "total_eip_days = all suitable days of the year"),
-            "doy_convention": "365-day basis (29 February omitted in leap years)",
+            "doy_convention": "365-day basis: in leap years 29 February shares day 59; no day is left out of the calculation",
             "use_year_wrap": bool(USE_YEAR_WRAP),
             "year_wrap_start": int(YEAR_WRAP_START),
             "dirs": {
@@ -959,6 +964,9 @@ def parse_args():
                    help="write ONLY season_ALL_YEARS_methods.csv + summary_ALL_YEARS_methods.csv (no intermediates)")
     p.add_argument("--min-gap", type=int, default=None,
                    help="override MIN_GAP_DAYS (default from config.py: 4 = 3-day rule; must be >= 2)")
+    p.add_argument("--input-root", type=str, default=None,
+                   help="read the hourly files from <input-root>/out/06_filled_yearly (and the tails next to it) "
+                        "while writing the results under --root; default: the same root")
     return p.parse_args()
 
 
@@ -973,6 +981,12 @@ if __name__ == "__main__":
         if args.min_gap < 2:
             raise SystemExit("--min-gap must be >= 2 (2 = no bridging; 4 = 3-day rule)")
         MIN_GAP_DAYS = int(args.min_gap)
+
+    if args.input_root:
+        _in = Path(args.input_root).expanduser().resolve() / "out"
+        DIR_IN_FILLED = _in / "06_filled_yearly"
+        DIR_TAILS_29 = _in / "06_filled_yearly_tails_29d"
+        DIR_TAILS_14 = _in / "06_filled_yearly_tails_14d"
 
     cfg_years = getattr(cfg, "YEARS", [])
     YEARS = _expand_years(args.years, cfg_years)
@@ -1002,6 +1016,12 @@ if __name__ == "__main__":
                         and any(dcsv.glob(f"{y}_season_*.csv")))
             if not reusable and not (DIR_IN_FILLED / f"{y}.nc").exists():
                 blocked.append(f"win{window_days}/{y}")
+    if USE_YEAR_WRAP and 30 in WINDOWS:
+        no_tail = [y for y in YEARS if y >= YEAR_WRAP_START and (DIR_IN_FILLED / f"{y}.nc").exists()
+                   and not (DIR_TAILS_29 / f"{y - 1}_tail29d.nc").exists()]
+        if no_tail:
+            print(f"[!] no tail file of the previous year in {DIR_TAILS_29} for: {no_tail}. These years are computed "
+                  f"without the year wrap (no suitable day before 30 January). Run step04 to create the tails.")
     if blocked:
         raise SystemExit("[step05] stopped, nothing written. These years have neither an input file "
                          f"{DIR_IN_FILLED}/<YEAR>.nc nor per-year results with the current settings: "

@@ -617,7 +617,7 @@ def main(argv: Optional[List[str]] = None):
     ap.add_argument("--consensus", action="store_true", help=argparse.SUPPRESS)  # kept for old command lines
     ap.add_argument("--breaks", type=str, default="", help="Fixed limits P25,P50,P75,P90 in days, e.g. 81,108,124,135")
     ap.add_argument("--bbox", type=str, default=ROMANIA_BBOX_DEFAULT, help="N,W,S,E. Default: Romania bbox")
-    ap.add_argument("--outline-shp", type=str, default=DEFAULT_OUTLINE_SHP, help="Outline shapefile (EPSG:4326)")
+    ap.add_argument("--outline-shp", type=str, default=DEFAULT_OUTLINE_SHP, help="boundary file for the map outline (any coordinate system; reprojected to EPSG:4326)")
     ap.add_argument("--style", type=str, default="seaborn-v0_8-whitegrid")
     ap.add_argument("--map-kind", type=str, default="grid", choices=["grid", "scatter"])
     ap.add_argument("--no-maps", action="store_true", help="Tables and metadata only")

@@ -562,7 +562,7 @@ def _save_quick_png(clip_nc: Path, out_png: Path, time_index: int = 0):
     ds = xr.open_dataset(clip_nc)
     da = ds["t2m"].isel(time=time_index).load()
 
-    cmap = mpl.cm.get_cmap(getattr(cfg, "CMAP_NAME", "RdBu_r")).copy()
+    cmap = plt.get_cmap(getattr(cfg, "CMAP_NAME", "RdBu_r")).copy()  # mpl.cm.get_cmap was removed in matplotlib 3.9
     cmap.set_bad(color=getattr(cfg, "NODATA_COLOR_HEX", "#FFF8B5"), alpha=1.0)
 
     data = da.values
