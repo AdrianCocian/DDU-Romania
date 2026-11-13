@@ -1,0 +1,25 @@
+{
+  "title": "DDU-Romania: Dirofilaria Development Unit (DDU) pipeline and outputs for Romania, 2005-2024",
+  "upload_type": "software",
+  "description": "<p>Code and outputs of the study <em>Comparative modelling of Dirofilaria spp. transmission risk (2005-2024) using DDU</em>. ERA5-Land hourly 2 m air temperature (0.1&deg; grid, 2,912 cells for Romania) is converted into Dirofilarial Development Units with four methods (min-max average, hourly average, Baskerville-Emin sine and an hourly-sum reference; 14 &deg;C threshold, 130 DDU or 3120 degree-hours within 30-day rolling windows). A transmission season is the longest run of suitable days, ending after three or more consecutive unsuitable days. The pipeline derives per-cell season onset, end, length and total suitable days for every year and method, compares the methods, assigns relative climatic suitability classes and reproduces the statistics, tables and figures of the manuscript.</p><p>The folder results/ holds the tables and the per-cell values of the published run (run_id 20260908_131817_6a83be93): onset, end, season length and total suitable days for every grid cell, year and method, with the record of the verification of this code against that run (VERIFICATION.txt). tools/verify_release.py repeats the verification on the hourly files; tools/check_against_manuscript.py checks a regenerated run against the numbers printed in the manuscript.</p><p>Licences: code MIT. The national boundary in data/boundaries/ (ANCPI, version 23.12.2021) is distributed under the Romanian Open Government Licence OGL-ROU-1.0. The results are derived from ERA5-Land (CC BY 4.0): contains modified Copernicus Climate Change Service information 2026; neither the European Commission nor ECMWF is responsible for any use that may be made of the Copernicus information or data it contains.</p>",
+  "creators": [
+    {
+      "name": "Cocian, Adrian Ionuț",
+      "affiliation": "Faculty of Veterinary Medicine, University of Agricultural Sciences and Veterinary Medicine (USAMV) Cluj-Napoca, Romania",
+      "orcid": "0009-0008-6329-0793"
+    }
+  ],
+  "keywords": [
+    "Dirofilaria",
+    "Dirofilarial Development Units",
+    "degree-day model",
+    "Baskerville-Emin method",
+    "transmission season",
+    "ERA5-Land",
+    "Romania",
+    "vector-borne disease"
+  ],
+  "license": "mit",
+  "language": "eng",
+  "notes": "Supported by UEFISCDI, Romania, project PN-IV-P1-PCE-2023-0176 (contract no. 84PCE/2025). ERA5-Land: Muñoz Sabater J (2019), Copernicus Climate Change Service (C3S) Climate Data Store, https://doi.org/10.24381/cds.e2161bac."
+}

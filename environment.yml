@@ -1,0 +1,39 @@
+# Conda environment of the DDU-Romania pipeline.
+#   conda env create -f environment.yml
+#   conda activate ddu_romania
+# Versions marked "published run" are those recorded in results/run_20260908_131817_6a83be93/META_step08.json.
+name: ddu_romania
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11              # published run: 3.11.13
+  - numpy=1.26.4             # published run
+  - pandas=3.0.0             # published run
+  - scipy=1.16.2             # published run
+  - matplotlib=3.10.6        # published run
+  # NetCDF / GRIB input and output
+  - xarray
+  - netcdf4
+  - h5netcdf
+  - h5py                   # needed by the h5netcdf engine (steps 02-04)
+  - cftime
+  - dask-core
+  - cfgrib
+  - eccodes
+  # ERA5-Land download from the Copernicus Climate Data Store
+  - cdsapi
+  # boundary, clipping and maps
+  - geopandas
+  - shapely
+  - pyproj
+  - rasterio
+  - rioxarray
+  # Excel workbooks, animations, progress bars, tests
+  - xlsxwriter
+  - openpyxl
+  - imageio
+  - tqdm
+  - pytest
+  - pip
+  - pip:
+      - diptest==0.10.0      # published run; Hartigan dip test (step08, step09)
