@@ -1,20 +1,28 @@
-```yaml
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "DDU Romania Pipeline"
+title: "DDU-Romania: Dirofilaria Development Unit (DDU) pipeline for Romania, 2005-2024"
 type: software
+version: "1.0.0"
+license: MIT
+repository-code: "https://github.com/AdrianCocian/DDU-Romania"
+url: "https://github.com/AdrianCocian/DDU-Romania"
 authors:
   - family-names: "Cocian"
-    given-names: "Adrian"
-license: "MIT"
-repository-code: "REPLACE_WITH_GITHUB_REPO_URL"
-url: "REPLACE_WITH_GITHUB_REPO_URL"
+    given-names: "Adrian Ionuț"
+    orcid: "https://orcid.org/0009-0008-6329-0793"
+    affiliation: "Faculty of Veterinary Medicine, University of Agricultural Sciences and Veterinary Medicine (USAMV) Cluj-Napoca, Romania"
 keywords:
-  - "Dirofilaria"
-  - "DDU"
-  - "vector-borne diseases"
-  - "Romania"
-  - "ERA5-Land"
-  - "climate suitability"
-  - "GIS"
-abstract: "Reproducible pipeline to compute Dirofilaria Development Units (DDU) and temperature-driven transmission season metrics in Romania from hourly ERA5-Land temperature data, including method comparisons, maps, and summary workbooks."
+  - Dirofilaria
+  - Dirofilarial Development Units
+  - degree-day model
+  - Baskerville-Emin method
+  - transmission season
+  - ERA5-Land
+  - Romania
+  - vector-borne disease
+abstract: >-
+  Reproducible Python pipeline that converts ERA5-Land hourly 2 m air temperature into Dirofilarial
+  Development Units (DDU) with four methods (min-max average, hourly average, Baskerville-Emin sine and
+  an hourly-sum reference), derives per-grid-cell transmission seasons for Romania (2005-2024; 14 °C
+  threshold, 130 DDU or 3120 degree-hours within 30-day rolling windows, 3-day season rule), compares the
+  methods and produces the tables and figures of the accompanying manuscript.

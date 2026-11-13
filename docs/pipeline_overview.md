@@ -1,53 +1,67 @@
-
-
 # Pipeline overview
 
-This document describes the workflow implemented by run_pipeline.py and scripts/step01–step08.
+All settings live in `config.py` (thresholds, window, 3-day rule, method names and colours, class rule, folder
+names). Statistics shared by steps 07–09 live in `ddu_stats.py`, so the same code produces the trend, class and
+agreement numbers everywhere. `run_pipeline.py` runs the steps in order.
 
-Inputs
-- Hourly near-surface temperature (ERA5-Land) for the study period.
-- Romania boundary polygon shapefile (boundaries/; EPSG:4326).
-- Configuration in config.py.
+## Inputs
 
-Outputs
-All generated outputs are written under out/ (gitignored). Key directories:
-- out/08_season_swrap/         season metrics from step05
-- out/12_method_compare/       method comparisons + maps + workbooks
+- ERA5-Land hourly 2 m air temperature (`reanalysis-era5-land`, variable `2m_temperature`), Romania bounding box
+  48.5 N, 19.9 E, 43.5 N, 30.1 E, 2005–2024.
+- Romania boundary polygon, `data/boundaries/ro_frontiera_poligon.shp` (EPSG:4326).
 
-Steps
+## Steps
 
-Step 0: config.py
-- Portable configuration for paths, thresholds, plotting defaults, and boundary auto-detection.
+**1. Download** (`step01_download_ro.py`). Monthly requests to the Copernicus Climate Data Store; NetCDF, with GRIB
+conversion as a fallback. Needs `~/.cdsapirc`.
 
-Step 01: scripts/step01_download_ro.py
-- Downloads hourly temperature from CDS/ERA5-Land for the requested time range and ROI.
+**2. Standardise and clip** (`step02_std_clip_ro.py`). Kelvin to °C, common coordinate names, cells outside Romania
+set to missing (2,912 cells remain).
 
-Step 02: scripts/step02_std_clip_ro.py
-- Standardizes and clips the temperature data to Romania polygon.
+**3. Yearly files** (`step03_concat_year.py`). One hourly file per year, `out/06_filled_yearly/{YYYY}.nc`.
 
-Step 03: scripts/step03_concat_year.py
-- Concatenates monthly files into yearly NetCDF.
+**4. Tails** (`step04_tails.py`). The last 29 days of every year, used to fill the 30-day window at the start of the
+next year (`out/06_filled_yearly_tails_29d/`).
 
-Step 04: scripts/step04_tails.py
-- Builds “tail” files to support year-wrap logic for rolling windows (e.g., 29-day tail for WIN30).
+**5. DDU and seasons** (`step05_ddu_season_wrap.py`).
+- Daily DDU with four methods (manuscript Table 1), threshold 14 °C:
+  min–max average `max(0, (Tmin + Tmax)/2 − 14)`; hourly average `max(0, Tmean − 14)`;
+  Baskerville–Emin sine (closed form of a sine day between Tmin and Tmax);
+  hourly sum `Σ max(0, T_h − 14)` in degree-hours (reference).
+- A day is suitable when the 30-day sum ending on that day reaches 130 DDU (3120 degree-hours for the hourly sum).
+- 3-day rule: runs of suitable days separated by 1–2 unsuitable days are joined; 3 or more consecutive unsuitable
+  days end a run (`MIN_GAP_DAYS = 4`). The longest run is the season.
+- Per cell, year and method: onset and end (dates and DOY on a 365-day basis), season length (end − onset + 1),
+  total EIP days, number of runs and suitable days outside the season.
+- Output: `out/08_season_swrap/win30/csv/season_ALL_YEARS_methods.csv`, `summary_ALL_YEARS_methods.csv`,
+  `META.json` (run_id, settings) and per-year files. Per-year files are reused only when their settings stamp
+  (`{YYYY}_settings.json`) matches the current settings; otherwise the year is recomputed.
 
-Step 05: scripts/step05_ddu_season_wrap.py
-- Computes per-pixel season metrics under multiple DDU calculation methods.
-- Outputs (per window):
-  - out/08_season_swrap/win{W}/csv/season_ALL_YEARS_methods.csv
-  - out/08_season_swrap/win{W}/csv/summary_ALL_YEARS_methods.csv
+**6. Method comparison** (`step06_ddu_method_compare.py`). Consensus (per-cell median of the methods), pairwise
+differences (method1 − method2, as in the manuscript tables), agreement thresholds, maps per year.
+Output: `out/12_method_compare/win30/6_method_comparison/`.
 
-Step 06: scripts/step06_ddu_method_compare.py
-- Builds consensus (median across methods) and pairwise deltas, and generates tables/plots/maps.
-- Outputs:
-  - out/12_method_compare/win{W}/6.compare/
+**7. Suitability classes** (`step07_suitability_classes.py`). Class limits = P25/P50/P75/P90 of the hourly-sum
+season length over all cell-years with a season (published run: 81, 108, 124, 135 days); the same limits for every
+method and for the consensus. Output: `7_suitability_classes/` (limits in `00_meta/class_breaks_META_7.json`,
+counts, maps). `--breaks 81,108,124,135` applies fixed limits to another period.
 
-Step 07 (WIN30 only): scripts/step07_risk_class_map.py
-- Converts season_length into fixed discrete risk classes (0..5) and generates maps/plots.
+**8. Per-year statistics** (`step08_per_year_per_pixel.py`). Year-count matrices, national median and IQR per year,
+Mann–Kendall and Sen's slope with 95% CI for the median and mean series (consensus and each method), variance share
+of method choice, distribution diagnostics. Output: `8_statistics/`.
 
-Step 08 (WIN30 only): scripts/step08_per_year_per_pixel.py
-- Produces yearly distribution matrices (DOY/month/length/EIP), national summaries, and mandatory stats workbooks:
-  - Dist_<var>: skewness, Shapiro-Wilk, Hartigan dip test
-  - Trend_<var>: Mann–Kendall, Sen slope, Sen intercept
-  - VarRatio_<var>: method uncertainty vs interannual signal
-  - NatSum_<var>: national median and IQR
+**9. Manuscript tables** (`step09_manuscript_statistics.py`). Tables T1–T9, per-cell classes, the manuscript tables
+(Tables 3–5, S1–S7) and `key_numbers.json` with every number quoted in the text. Output: `00_MANUSCRIPT_PACK/`.
+
+**10. Figures** (`step10_manuscript_figures.py`). Figure 1 (consensus season length, 2005/2011/2017/2024), Figure 2
+(suitability classes, hourly sum), Figure 3 (national median season length per method), 300 dpi PNG and PDF.
+
+## Method names
+
+| Key in files | Name in the manuscript |
+|---|---|
+| `midpoint` | Min–max average |
+| `daily_mean` | Hourly average |
+| `be_sine` | BE-sine (Baskerville–Emin) |
+| `hourly_sum` | Hourly sum (reference) |
+| `consensus` | Consensus (median of the four) |
