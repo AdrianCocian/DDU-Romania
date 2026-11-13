@@ -10,7 +10,7 @@ Runs AFTER:
     <ROOT>/out/08_season_swrap/win{W}/csv/season_ALL_YEARS_methods.csv
 
 Outputs per window W:
-  <ROOT>/out/12_method_compare/win{W}/6.compare/
+  <ROOT>/out/12_method_compare/win{W}/6_method_comparison/   (config.STEP6_DIRNAME)
 
 CLEAN output structure:
   00_meta/
@@ -131,9 +131,15 @@ else:
     guess = this.parent.parent if this.parent.name.lower() == "scripts" else this.parent
     REPO_ROOT = _find_repo_root(guess)
 
-os.environ.setdefault("DDU_ROOT", str(REPO_ROOT))
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+if _root_cli:
+    os.environ["DDU_ROOT"] = str(REPO_ROOT)          # --root wins over an inherited DDU_ROOT
+else:
+    os.environ.setdefault("DDU_ROOT", str(REPO_ROOT))
+_this_py = Path(__file__).resolve()
+_code_root = _this_py.parent.parent if _this_py.parent.name.lower() == "scripts" else _this_py.parent
+for _p in (str(REPO_ROOT), str(_code_root)):   # this repository's config.py / ddu_stats.py come first
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 # ---------------------------------------------------------------------
 # Optional config integration
@@ -191,6 +197,15 @@ DISPLAY = {
 }
 
 DEFAULT_METHODS = ["midpoint", "daily_mean", "hourly_sum", "be_sine"]
+
+# Names used in the manuscript (pipeline keys stay unchanged in file names and CSV columns)
+METHOD_LABELS = dict(getattr(cfg, "METHOD_LABELS", {})) if cfg is not None else {}
+STEP6_DIRNAME = str(getattr(cfg, "STEP6_DIRNAME", "6_method_comparison")) if cfg is not None else "6_method_comparison"
+
+
+def _lab(m: str) -> str:
+    return METHOD_LABELS.get(m, m)
+
 
 DEFAULT_PAIRS = [
     ("midpoint", "daily_mean"),
@@ -469,7 +484,7 @@ def compare_phase(
         "bbox": bbox,
         "pairs_canonical_delta": "delta = method1 - method2",
         "canonical_pairs": [f"{a}-{b}" for a, b in DEFAULT_PAIRS],
-        "created_utc": pd.Timestamp.utcnow().isoformat(timespec="seconds"),
+        "created_utc": pd.Timestamp.now(tz="UTC").isoformat(timespec="seconds"),
     }
     if thresholds_meta:
         for k in ("tbase_c", "thresh_dd_window", "thresh_dh_window", "min_gap_days", "use_year_wrap"):
@@ -775,9 +790,9 @@ def _pair_scatter_all_years(per_year_dir: Path, var: str, pair: Tuple[str, str],
         fig, ax = plt.subplots(figsize=(6.5, 6.5))
         ax.scatter(a, b, s=5, alpha=0.25, edgecolor="none")
         ax.plot([mn, mx], [mn, mx], "k--", lw=1)
-        ax.set_xlabel(f"{m1} {DISPLAY.get(var, var)}")
-        ax.set_ylabel(f"{m2} {DISPLAY.get(var, var)}")
-        ax.set_title(f"{DISPLAY.get(var, var)} — {m1} vs {m2} (all years)")
+        ax.set_xlabel(f"{_lab(m1)} {DISPLAY.get(var, var)}")
+        ax.set_ylabel(f"{_lab(m2)} {DISPLAY.get(var, var)}")
+        ax.set_title(f"{DISPLAY.get(var, var)} — {_lab(m1)} vs {_lab(m2)} (all years)")
         fig.tight_layout()
         fig.savefig(out_plots / f"scatter_{var}_{m1}-{m2}_ALLYEARS.png", dpi=dpi)
         plt.close(fig)
@@ -815,7 +830,7 @@ def _pair_bland_altman(per_year_dir: Path, var: str, pair: Tuple[str, str], out_
         ax.axhline(md - 1.96 * sd, color="r", ls="--", lw=1)
         ax.set_xlabel("Mean of methods")
         ax.set_ylabel(f"Δ {DISPLAY.get(var, var)} (m1−m2)")
-        ax.set_title(f"Bland–Altman — {DISPLAY.get(var, var)} ({m1}−{m2})")
+        ax.set_title(f"Bland–Altman — {DISPLAY.get(var, var)} ({_lab(m1)} − {_lab(m2)})")
         ax.legend()
         fig.tight_layout()
         fig.savefig(out_plots / f"bland_altman_{var}_{m1}-{m2}_ALLYEARS.png", dpi=dpi)
@@ -866,7 +881,7 @@ def _delta_histograms_all_years(agg_dir: Path, var: str, out_plots: Path, style:
             fig, ax = plt.subplots(figsize=(7.2, 4.6))
             ax.hist(s, bins=bins, range=rng, density=True)
             ax.axvline(0, color="k", lw=1)
-            ax.set_title(f"Δ {DISPLAY.get(var, var)} — all-years median per pixel — {m1}−{m2}")
+            ax.set_title(f"Δ {DISPLAY.get(var, var)} — all-years median per pixel — {_lab(m1)} − {_lab(m2)}")
             ax.set_xlabel(f"Δ {DISPLAY.get(var, var)} (m1−m2)")
             ax.set_ylabel("Density")
             fig.tight_layout()
@@ -982,11 +997,11 @@ def _map_values_per_year_permethod(
                 divider = make_axes_locatable(ax)
                 cax = divider.append_axes("right", size="5%", pad=0.05)
                 cb = fig.colorbar(m, cax=cax)
-                cb.set_label(f"{DISPLAY.get(var, var)} — {mth}")
+                cb.set_label(f"{DISPLAY.get(var, var)} — {_lab(mth)}")
 
                 _draw_outline(ax, outline_shp)
 
-                ax.set_title(f"{int(yv)} — {DISPLAY.get(var, var)} ({mth})")
+                ax.set_title(f"{int(yv)} — {DISPLAY.get(var, var)} ({_lab(mth)})")
                 ax.set_xlabel("Longitude")
                 ax.set_ylabel("Latitude")
                 if bbox:
@@ -1049,7 +1064,7 @@ def _map_deltas_per_year(
 
             with _style_ctx("default"):
                 fig, ax = plt.subplots(figsize=(7.1, 6))
-                ax.set_title(f"Δ {DISPLAY.get(var, var)} ({mm1}−{mm2}) — {y}")
+                ax.set_title(f"Δ {DISPLAY.get(var, var)} ({_lab(mm1)} − {_lab(mm2)}) — {y}")
                 ax.set_xlabel("Longitude")
                 ax.set_ylabel("Latitude")
 
@@ -1084,7 +1099,7 @@ def _map_deltas_per_year(
 
                 with _style_ctx("default"):
                     fig2, ax2 = plt.subplots(figsize=(7.1, 6))
-                    ax2.set_title(f"Disagreement |Δ {DISPLAY.get(var, var)}| ≥ {delta_flag} ({mm1}−{mm2}) — {y}")
+                    ax2.set_title(f"Disagreement |Δ {DISPLAY.get(var, var)}| ≥ {delta_flag} ({_lab(mm1)} − {_lab(mm2)}) — {y}")
                     ax2.set_xlabel("Longitude")
                     ax2.set_ylabel("Latitude")
 
@@ -1283,7 +1298,7 @@ def graphs_phase(
 
                     safe_m = str(m).replace(" ", "_")
                     summ_m.to_csv(out_tables / f"national_summary_{var}_method_{safe_m}.csv", index=False)
-                    ax.plot(summ_m["year"], summ_m["median"], marker="o", lw=1.6, label=m)
+                    ax.plot(summ_m["year"], summ_m["median"], marker="o", lw=1.6, label=_lab(m))
 
                 ax.set_xlabel("Year")
                 _set_year_ticks(ax, axis_years)
@@ -1328,7 +1343,7 @@ def graphs_phase(
                     fig, ax = plt.subplots(figsize=(12, 5))
                     big.boxplot(column="delta", by="year", ax=ax, grid=False, showfliers=False)
                     ax.axhline(0, color="k", lw=1, alpha=0.6)
-                    ax.set_title(f"Δ {DISPLAY.get(var, var)} ({m1} − {m2}) per year")
+                    ax.set_title(f"Δ {DISPLAY.get(var, var)} ({_lab(m1)} − {_lab(m2)}) per year")
                     ax.set_xlabel("Year")
                     _set_year_ticks(ax, big["year"].tolist())
                     ax.set_ylabel(f"Δ {DISPLAY.get(var, var)} (m1−m2)")
@@ -1842,7 +1857,7 @@ def export_combined_results(
     files_index = []
 
     for W in windows:
-        out_root = output_root_base / f"win{W}" / "6.compare"
+        out_root = output_root_base / f"win{W}" / STEP6_DIRNAME
         if not out_root.exists():
             continue
 
@@ -2003,7 +2018,7 @@ def main():
     ap.add_argument("--methods-csv", type=str, default=DEFAULT_METHODS_CSV_TEMPLATE,
                     help=r"Path to season_ALL_YEARS_methods.csv; supports {win}")
     ap.add_argument("--output-root", type=str, default=DEFAULT_OUTPUT_ROOT,
-                    help="Base output dir; will write into /win{W}/6.compare")
+                    help="Base output dir; will write into /win{W}/6_method_comparison")
 
     ap.add_argument("--years", type=str, default=None, help="A-B or comma list")
     ap.add_argument("--methods", type=str, default=",".join(DEFAULT_METHODS))
@@ -2081,7 +2096,7 @@ def main():
 
         processed_wins.append(W)
 
-        out_root = Path(args.output_root) / f"win{W}" / "6.compare"
+        out_root = Path(args.output_root) / f"win{W}" / STEP6_DIRNAME
         _ensure_out_structure(out_root)
         thresholds_meta = _sibling_meta(in_csv)
 

@@ -4,12 +4,14 @@ r"""
 step08_per_year_per_pixel.py — WIN30 one-shot: YEAR COUNTS (Stage A) + GRAPHS/MAPS (Stage B)
 + EXTRA TS (Stage C) + CENTRAL EXCEL (Stage X) + STATS SUMMARY (Stage S)
 
-Goal (mandatory stats):
-- Produce the same statistical outputs as your attached win30_7a_summary.xlsx:
+Statistics (manuscript, section 2.6):
   * Dist_<var>: skewness + Shapiro-Wilk + Hartigan dip test + flags
-  * Trend_<var>: Mann–Kendall + Sen slope + Sen intercept (workbook-style)
+  * Trend_<var>: Mann–Kendall (tie- and continuity-corrected) + Sen's slope with 95 % CI
+    (Gilbert 1987 rank method) + Sen intercept + lag-1 autocorrelation, for the national
+    median and mean series; computed with ddu_stats.trend_row, the same code as step09 (table T1)
   * VarRatio_<var>: method-uncertainty vs interannual signal
   * NatSum_<var>: national median + IQR
+Method keys stay in file names; plots use the manuscript names (config.METHOD_LABELS).
 
 Scope:
 - Window fixed to WIN=30.
@@ -20,15 +22,15 @@ Inputs:
    (fallback: out/11_ddu_season_swrap/win30/csv/season_ALL_YEARS_methods.csv)
 
 2) Step 6 outputs (per-year consensus + pairwise):
-   Preferred: <ROOT>/out/12_method_compare/win30/6.compare/
-   Fallbacks: <ROOT>/out/12_method_compare/win30/6A/ or .../win30/6/
+   Preferred: <ROOT>/out/12_method_compare/win30/6_method_comparison/   (config.STEP6_DIRNAME)
+   Legacy fallbacks: .../win30/6.compare/, .../win30/6A/, .../win30/6/
    Per-year files can live in:
      - <in6>/01_tables/per_year/
      - <in6>/per_year/
      - <in6>/   (legacy)
 
 Outputs:
-<ROOT>/out/12_method_compare/win30/8.per_year_per_pixel/
+<ROOT>/out/12_method_compare/win30/8_statistics/   (config.STEP8_DIRNAME)
   00_meta/ META_8.json
   yr_counts/ (Stage A)
   graphs/
@@ -61,7 +63,7 @@ from __future__ import annotations
 
 import os, sys, json, argparse, warnings, re
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple, List, Dict
 
 # ---------------------------------------------------------------------
@@ -94,9 +96,15 @@ else:
     guess = this.parent.parent if this.parent.name.lower() == "scripts" else this.parent
     REPO_ROOT = _find_repo_root(guess)
 
-os.environ.setdefault("DDU_ROOT", str(REPO_ROOT))
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+if _root_cli:
+    os.environ["DDU_ROOT"] = str(REPO_ROOT)          # --root wins over an inherited DDU_ROOT
+else:
+    os.environ.setdefault("DDU_ROOT", str(REPO_ROOT))
+_this_file = Path(__file__).resolve()
+CODE_ROOT = _find_repo_root(_this_file.parent.parent if _this_file.parent.name.lower() == "scripts" else _this_file.parent)
+for _p in (str(REPO_ROOT), str(CODE_ROOT)):   # code root ends first on sys.path
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 ROOT_ENV = Path(os.environ.get("DDU_ROOT", str(REPO_ROOT))).resolve()
 
@@ -141,20 +149,37 @@ try:
 except Exception:
     cfg = None  # type: ignore
 
+import ddu_stats as ds  # noqa: E402  (repository root module, shared with step09)
+
 # ---------------- constants ----------------
 WIN = 30
 NODATA_HEX = "#FFF5B1"
 
-DEFAULT_METHODS = ["midpoint", "daily_mean", "hourly_sum", "be_sine"]
+def _cfg(name, default):
+    return getattr(cfg, name, default) if cfg is not None else default
 
-DEFAULT_PAIRS = [
-    ("midpoint", "daily_mean"),
-    ("midpoint", "be_sine"),
-    ("midpoint", "hourly_sum"),
+DEFAULT_METHODS = list(_cfg("METHODS", ["midpoint", "daily_mean", "hourly_sum", "be_sine"]))
+METHOD_LABELS = dict(_cfg("METHOD_LABELS", {}))
+REF_METHOD = str(_cfg("REF_METHOD", "hourly_sum"))
+STEP6_DIRNAME = str(_cfg("STEP6_DIRNAME", "6_method_comparison"))
+STEP7_DIRNAME = str(_cfg("STEP7_DIRNAME", "7_suitability_classes"))
+STEP8_DIRNAME = str(_cfg("STEP8_DIRNAME", "8_statistics"))
+
+# difference = method1 - method2 (same orientation as the manuscript tables)
+DEFAULT_PAIRS = [tuple(p) for p in _cfg("PAIRS", [
+    ("be_sine", "hourly_sum"),
     ("daily_mean", "be_sine"),
     ("daily_mean", "hourly_sum"),
-    ("be_sine", "hourly_sum"),
-]
+    ("midpoint", "be_sine"),
+    ("midpoint", "daily_mean"),
+    ("midpoint", "hourly_sum"),
+])]
+
+def _lab(m) -> str:
+    return METHOD_LABELS.get(str(m), str(m))
+
+TREND_COLUMNS = ["variable", "method", "series", "n", "year_first", "year_last", "mk_S", "mk_trend", "mk_p",
+                 "mk_z", "mk_tau", "sen_slope", "sen_lo95", "sen_hi95", "sen_intercept", "acf1"]
 
 VAR_ALIASES = {
     "start_doy":      ["start_doy", "season_start_doy", "main_start_doy"],
@@ -344,7 +369,8 @@ def find_in6_dir(out_base: Path, in6_override: Optional[str]) -> Path:
     if in6_override:
         return Path(in6_override)
     cands=[
-        out_base/f"win{WIN}"/"6.compare",
+        out_base/f"win{WIN}"/STEP6_DIRNAME,
+        out_base/f"win{WIN}"/"6.compare",   # legacy names
         out_base/f"win{WIN}"/"6A",
         out_base/f"win{WIN}"/"6",
     ]
@@ -359,66 +385,25 @@ def _norm_cdf(z: float) -> float:
     return 0.5*(1.0 + math.erf(z / math.sqrt(2.0)))
 
 def mann_kendall_test(years: np.ndarray, values: np.ndarray) -> dict:
-    years=np.asarray(years, dtype=float)
-    x=np.asarray(values, dtype=float)
-    m=np.isfinite(years)&np.isfinite(x)
-    years=years[m]; x=x[m]
-    n=int(x.size)
-    if n<3:
+    """Mann-Kendall + Sen's slope (95 % CI), Sen intercept and lag-1 autocorrelation.
+
+    Thin wrapper around ddu_stats.trend_row (same code as step09, table T1). Returns {} when fewer
+    than three finite values are available."""
+    y = np.asarray(years, dtype=float)
+    v = np.asarray(values, dtype=float)
+    if int(np.sum(np.isfinite(y) & np.isfinite(v))) < 3:
         return {}
-    order=np.argsort(years)
-    years=years[order]; x=x[order]
+    return ds.trend_row(y, v)
 
-    s=0
-    for i in range(n-1):
-        di=x[i+1:]-x[i]
-        s += int(np.sum(di>0))
-        s -= int(np.sum(di<0))
-
-    _,counts=np.unique(x, return_counts=True)
-    ties=counts[counts>1]
-    var_s = n*(n-1)*(2*n+5)
-    if ties.size:
-        var_s -= np.sum(ties*(ties-1)*(2*ties+5))
-    var_s = var_s/18.0
-
-    if var_s<=0:
-        z=0.0
-    else:
-        if s>0: z=(s-1)/np.sqrt(var_s)
-        elif s<0: z=(s+1)/np.sqrt(var_s)
-        else: z=0.0
-
-    p=2.0*(1.0 - _norm_cdf(abs(float(z))))
-    tau = s/(0.5*n*(n-1))
-
-    slopes=[]
-    for i in range(n-1):
-        dy=years[i+1:]-years[i]
-        dv=x[i+1:]-x[i]
-        good = dy!=0
-        if np.any(good):
-            slopes.extend((dv[good]/dy[good]).tolist())
-    sen=float(np.nanmedian(np.asarray(slopes))) if slopes else float("nan")
-
-    # workbook-style intercept
-    t=np.arange(n, dtype=float)
-    sen_intercept = float(np.nanmedian(x) - sen*np.nanmedian(t)) if np.isfinite(sen) else float("nan")
-
-    alpha=0.05
-    if np.isfinite(p) and p<alpha:
-        trend="increasing" if z>0 else "decreasing"
-    else:
-        trend="no trend"
-
-    return {
-        "mk_trend": trend,
-        "mk_p": float(p),
-        "mk_z": float(z),
-        "mk_tau": float(tau),
-        "sen_slope": float(sen),
-        "sen_intercept": float(sen_intercept),
-    }
+def trend_rows(var: str, method: str, summ: pd.DataFrame) -> List[dict]:
+    rows = []
+    for series in ("median", "mean"):
+        if series not in summ.columns:
+            continue
+        tr = mann_kendall_test(summ["year"].to_numpy(), summ[series].to_numpy())
+        if tr:
+            rows.append({"variable": var, "method": method, "series": series, **tr})
+    return rows
 
 def compute_distribution_diagnostics(values: np.ndarray, year: int, max_n: int=5000) -> dict:
     v = np.asarray(values, dtype=float)
@@ -802,7 +787,7 @@ def stage_b_graphs_maps(
             v=v[np.isfinite(v)]
             if v.size==0:
                 continue
-            rows.append({"year":y,"median":float(np.nanmedian(v)),"p25":float(np.nanpercentile(v,25)),"p75":float(np.nanpercentile(v,75)),"count":int(v.size)})
+            rows.append({"year":y,"median":float(np.nanmedian(v)),"mean":float(np.nanmean(v)),"p25":float(np.nanpercentile(v,25)),"p75":float(np.nanpercentile(v,75)),"count":int(v.size)})
 
         if rows:
             summ=pd.DataFrame(rows).sort_values("year")
@@ -820,19 +805,19 @@ def stage_b_graphs_maps(
                     dist_rows.append(compute_distribution_diagnostics(vv, int(y), max_n=stats_max_n))
                 if dist_rows:
                     pd.DataFrame(dist_rows).sort_values("year").to_csv(tables/f"distribution_stats_{var}.csv", index=False)
-                tr=mann_kendall_test(summ["year"].to_numpy(), summ["median"].to_numpy())
-                if tr:
-                    pd.DataFrame([tr]).to_csv(tables/f"trend_stats_{var}.csv", index=False)
+                tr_rows=trend_rows(var, "consensus", summ)
+                if tr_rows:
+                    pd.DataFrame(tr_rows).reindex(columns=TREND_COLUMNS).to_csv(tables/f"trend_stats_{var}.csv", index=False)
 
             with style_ctx(style):
                 fig,ax=plt.subplots(figsize=(10,5))
                 ax.plot(summ["year"], summ["median"], lw=2, marker="o", label="Median (consensus)")
                 ax.fill_between(summ["year"], summ["p25"], summ["p75"], alpha=0.18, label="IQR")
-                x=summ["year"].to_numpy(float); yv=summ["median"].to_numpy(float)
-                m=np.isfinite(x)&np.isfinite(yv)
-                if m.sum()>=2:
-                    a,b=np.polyfit(x[m], yv[m], 1)
-                    ax.plot(x[m], a*x[m]+b, lw=1.6, ls="--", alpha=0.85, label=f"Trend ≈ {a:.2f}/yr")
+                tr=mann_kendall_test(summ["year"].to_numpy(), summ["median"].to_numpy())
+                if tr:
+                    x=summ["year"].to_numpy(float)
+                    ax.plot(x, tr["sen_intercept"]+tr["sen_slope"]*(x-tr["year_first"]), lw=1.6, ls="--", alpha=0.85,
+                            label=f"Sen's slope {tr['sen_slope']:.2f}/yr (95% CI {tr['sen_lo95']:.2f} to {tr['sen_hi95']:.2f}), MK p = {tr['mk_p']:.3f}")
                 ax.set_title(f"National time series — {DISPLAY.get(var,var)} (consensus)")
                 ax.set_xlabel("Year"); set_year_ticks(ax, summ["year"].tolist())
                 ax.set_ylabel(DISPLAY.get(var,var)); ax.legend()
@@ -883,6 +868,7 @@ def stage_b_graphs_maps(
                 g=sub.groupby("year")[var]
                 summ=pd.DataFrame({"year":g.median().index.astype(int),
                                    "median":g.median().values,
+                                   "mean":g.mean().values,
                                    "p25":g.quantile(0.25).values,
                                    "p75":g.quantile(0.75).values,
                                    "count":g.count().values})
@@ -894,7 +880,7 @@ def stage_b_graphs_maps(
                     fig,ax=plt.subplots(figsize=(11,5.2))
                     all_years=set()
                     for mth,summ in summ_by_method.items():
-                        ax.plot(summ["year"], summ["median"], lw=2, marker="o", label=str(mth))
+                        ax.plot(summ["year"], summ["median"], lw=2, marker="o", label=_lab(mth))
                         all_years |= set(summ["year"].astype(int).tolist())
                     ax.set_title(f"National time series — {DISPLAY.get(var,var)} (methods overlay)")
                     ax.set_xlabel("Year"); set_year_ticks(ax, sorted(all_years))
@@ -904,6 +890,11 @@ def stage_b_graphs_maps(
                     plt.close(fig)
 
                 if stats:
+                    tr_rows=[]
+                    for mth,summ in summ_by_method.items():
+                        tr_rows += trend_rows(var, mth, summ)
+                    if tr_rows:
+                        pd.DataFrame(tr_rows).reindex(columns=TREND_COLUMNS).to_csv(tables/f"trend_stats_{var}_by_method.csv", index=False)
                     vr=compute_variance_ratio(summ_by_method, value_col="median")
                     if vr:
                         vr["variable"]=var
@@ -922,7 +913,7 @@ def stage_b_graphs_maps(
                         dyy[var]=pd.to_numeric(dyy[var], errors="coerce")
                         with style_ctx(style):
                             fig,ax=plt.subplots(figsize=(7.1,6))
-                            ax.set_title(f"{DISPLAY.get(var,var)} — {mth} — {y}")
+                            ax.set_title(f"{DISPLAY.get(var,var)} — {_lab(mth)} — {y}")
                             ax.set_xlabel("Longitude"); ax.set_ylabel("Latitude")
                             mapp = grid_pcolormesh(ax, dyy, var, cmap, norm, bbox=bbox) if map_kind=="grid" else None
                             if mapp is None:
@@ -1013,7 +1004,7 @@ def stage_b_graphs_maps(
                     fig,ax=plt.subplots(figsize=(7.2,4.6))
                     ax.hist(s, bins=41, density=False)
                     ax.axvline(0, color="k", lw=1)
-                    ax.set_title(f"Δ {DISPLAY.get(var,var)} — all-years median per pixel — {m1}-{m2}")
+                    ax.set_title(f"Δ {DISPLAY.get(var,var)} — all-years median per pixel — {_lab(m1)} − {_lab(m2)}")
                     ax.set_xlabel(f"Δ {DISPLAY.get(var,var)} (m1−m2)")
                     ax.set_ylabel("Pixels")
                     fig.tight_layout()
@@ -1081,7 +1072,7 @@ def stage_b_graphs_maps(
                     bigb.boxplot(column="delta", by="year", ax=ax, grid=False, showfliers=False)
                     plt.suptitle("")
                     ax.axhline(0, color="k", lw=1, alpha=0.6)
-                    ax.set_title(f"Δ {DISPLAY.get(var,var)} ({m1}−{m2}) per year")
+                    ax.set_title(f"Δ {DISPLAY.get(var,var)} ({_lab(m1)} − {_lab(m2)}) per year")
                     ax.set_xlabel("Year"); set_year_ticks(ax, bigb["year"].tolist())
                     ax.set_ylabel(f"Δ {DISPLAY.get(var,var)} (m1−m2)")
                     fig.tight_layout()
@@ -1096,9 +1087,9 @@ def stage_b_graphs_maps(
                         fig,ax=plt.subplots(figsize=(6.5,6.5))
                         ax.scatter(X,Y,s=5,alpha=0.25,edgecolor="none")
                         ax.plot([mn,mx],[mn,mx],"k--",lw=1)
-                        ax.set_xlabel(f"{m1} {DISPLAY.get(var,var)}")
-                        ax.set_ylabel(f"{m2} {DISPLAY.get(var,var)}")
-                        ax.set_title(f"{DISPLAY.get(var,var)} — {m1} vs {m2} (sampled all-years)")
+                        ax.set_xlabel(f"{_lab(m1)} {DISPLAY.get(var,var)}")
+                        ax.set_ylabel(f"{_lab(m2)} {DISPLAY.get(var,var)}")
+                        ax.set_title(f"{DISPLAY.get(var,var)} — {_lab(m1)} vs {_lab(m2)} (sampled all-years)")
                         fig.tight_layout()
                         fig.savefig(plots/f"scatter_{var}_{m1}-{m2}_ALLYEARS.png", dpi=fig_dpi)
                         plt.close(fig)
@@ -1115,7 +1106,7 @@ def stage_b_graphs_maps(
                         ax.axhline(md-1.96*sd,color="r",ls="--",lw=1)
                         ax.set_xlabel("Mean of methods")
                         ax.set_ylabel(f"Δ {DISPLAY.get(var,var)} (m1−m2)")
-                        ax.set_title(f"Bland–Altman — {DISPLAY.get(var,var)} ({m1}−{m2})")
+                        ax.set_title(f"Bland–Altman — {DISPLAY.get(var,var)} ({_lab(m1)} − {_lab(m2)})")
                         ax.legend()
                         fig.tight_layout()
                         fig.savefig(plots/f"bland_altman_{var}_{m1}-{m2}_ALLYEARS.png", dpi=fig_dpi)
@@ -1141,7 +1132,7 @@ def stage_b_graphs_maps(
                     norm=norm_delta_symmetric(vals)
                     with style_ctx(style):
                         fig,ax=plt.subplots(figsize=(7.1,6))
-                        ax.set_title(f"Δ {DISPLAY.get(var,var)} ({m1}−{m2}) — {y}")
+                        ax.set_title(f"Δ {DISPLAY.get(var,var)} ({_lab(m1)} − {_lab(m2)}) — {y}")
                         ax.set_xlabel("Longitude"); ax.set_ylabel("Latitude")
                         mapp = grid_pcolormesh(ax, sub, "delta", cmap, norm, bbox=bbox) if map_kind=="grid" else None
                         if mapp is None:
@@ -1162,7 +1153,7 @@ def stage_b_graphs_maps(
                         cmap_flag=apply_nan_cmap("gray_r")
                         with style_ctx(style):
                             fig,ax=plt.subplots(figsize=(7.1,6))
-                            ax.set_title(f"|Δ {DISPLAY.get(var,var)}| ≥ {thr} ({m1}−{m2}) — {y}")
+                            ax.set_title(f"|Δ {DISPLAY.get(var,var)}| ≥ {thr} ({_lab(m1)} − {_lab(m2)}) — {y}")
                             ax.set_xlabel("Longitude"); ax.set_ylabel("Latitude")
                             mapp = grid_pcolormesh(ax, sub2, "flag", cmap_flag, vnorm, bbox=bbox) if map_kind=="grid" else None
                             if mapp is None:
@@ -1314,7 +1305,7 @@ def write_stats_summary_xlsx(out_root: Path, window: int, variables: List[str]) 
         except Exception:
             return pd.DataFrame()
 
-    created = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     with pd.ExcelWriter(xlsx, engine=engine) as xlw:
         pd.DataFrame([{"Created": created, "Window": int(window)}]).to_excel(xlw, sheet_name="INFO", index=False)
@@ -1322,7 +1313,10 @@ def write_stats_summary_xlsx(out_root: Path, window: int, variables: List[str]) 
         for var in variables:
             df_tr = _read_csv(tables_dir / f"trend_stats_{var}.csv")
             if not df_tr.empty:
-                keep = [c for c in ["mk_trend", "mk_p", "mk_z", "mk_tau", "sen_slope", "sen_intercept"] if c in df_tr.columns]
+                df_trm = _read_csv(tables_dir / f"trend_stats_{var}_by_method.csv")
+                if not df_trm.empty:
+                    df_tr = pd.concat([df_tr, df_trm], ignore_index=True)
+                keep = [c for c in TREND_COLUMNS if c in df_tr.columns]
                 df_tr[keep].to_excel(xlw, sheet_name=f"Trend_{var}"[:31], index=False)
 
             df_ds = _read_csv(tables_dir / f"distribution_stats_{var}.csv")
@@ -1374,13 +1368,23 @@ def resolve_paths(root: Path, output_root_override: Optional[str], in6_override:
     if out_override:
         out_dir=Path(out_override)
     else:
-        out_dir=out_base/f"win{WIN}"/"8.per_year_per_pixel"
+        out_dir=out_base/f"win{WIN}"/STEP8_DIRNAME
 
     return {"out_base":out_base,"methods_csv":methods_csv,"in6_dir":in6_dir,"out_dir":out_dir}
 
+def _software_versions() -> dict:
+    import platform
+    out = {"python": platform.python_version()}
+    for mod in ("numpy", "pandas", "scipy", "matplotlib", "diptest"):
+        try:
+            out[mod] = __import__(mod).__version__
+        except Exception:
+            out[mod] = None
+    return out
+
 # ---------------- MAIN ----------------
 def main():
-    ap=argparse.ArgumentParser(description="WIN30 8.per_year_per_pixel — ONE RUN")
+    ap=argparse.ArgumentParser(description="step08 - per-year counts, national series, trend and variance statistics (win30)")
 
     ap.add_argument("--root", type=str, default="", help="Repo/project root (parent of out/). Default: auto-detect.")
     ap.add_argument("--years", type=str, default=None, help="2005-2024 or comma list.")
@@ -1393,8 +1397,8 @@ def main():
     ap.add_argument("--outline-shp", type=str, default=str(getattr(cfg,"SHP_RO","")) if cfg is not None and getattr(cfg,"SHP_RO",None) else "")
 
     ap.add_argument("--output-root", type=str, default=None, help="Override <ROOT>/out/12_method_compare")
-    ap.add_argument("--in6", type=str, default=None, help="Override step-6 folder (default: auto 6.compare then 6A then 6)")
-    ap.add_argument("--out", type=str, default=None, help="Override output dir (default: .../win30/8.per_year_per_pixel)")
+    ap.add_argument("--in6", type=str, default=None, help="Override step-6 folder (default: 6_method_comparison, then legacy 6.compare / 6A / 6)")
+    ap.add_argument("--out", type=str, default=None, help="Override output dir (default: .../win30/8_statistics)")
     ap.add_argument("--methods-csv", type=str, default=None, help="Override season_ALL_YEARS_methods.csv path")
 
     # Stage toggles
@@ -1499,7 +1503,7 @@ def main():
         methods_df=methods_df[methods_df["year"].isin(years)].copy()
 
     meta={
-        "script":"step08_per_year_per_pixel.py (win30) — FINAL",
+        "script":"step08_per_year_per_pixel.py (win30)",
         "win":WIN,
         "root":str(root),
         "methods_csv":str(methods_csv),
@@ -1520,7 +1524,21 @@ def main():
         "stats":bool(args.stats),
         "stats_max_n":int(args.stats_max_n),
         "scatter_max":int(args.scatter_max),
-        "timestamp":datetime.utcnow().isoformat(timespec="seconds")+"Z",
+        "out7_name":STEP7_DIRNAME,
+        "ref_method":REF_METHOD,
+        "software":_software_versions(),
+        "stats_settings":{
+            "alpha":0.05,
+            "mk_tie_correction":True,
+            "mk_continuity_correction":True,
+            "sen_ci":"95 %, rank method (Gilbert 1987; Helsel & Hirsch 2002)",
+            "sen_intercept":"median(x) - slope*median(t), t=0 at first year",
+            "shapiro_subsample_seed":42,
+            "shapiro_max_n":int(args.stats_max_n),
+            "dip_pvalue":"diptest table interpolation (boot_pval=False)",
+            "class_reference_method":REF_METHOD,
+        },
+        "timestamp":datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00","Z"),
     }
     (out_dir/"00_meta"/"META_8.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
