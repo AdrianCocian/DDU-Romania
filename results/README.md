@@ -20,12 +20,26 @@ The run_id is the one written by step05 (`META_step05.json`).
 | `T8_bias_by_reference_class.csv` | difference from the hourly sum by reference class |
 | `T9_median_gap_diagnostic.csv` | gap between national medians versus paired differences |
 
-Variables: `season_length`, `start_doy`, `end_doy` (DOY on a 365-day basis) and `total_eip_days`.
+Variables: `season_length`, `start_doy`, `end_doy` (day numbers on a 365-day basis: in leap years 29 February
+shares number 59; no day is left out of the season length) and `total_eip_days`.
 Method keys: `midpoint` = min–max average, `daily_mean` = hourly average, `be_sine` = BE-sine,
 `hourly_sum` = hourly sum (reference), `consensus` = median of the four.
 
-The per-cell season file of step05 (`season_ALL_YEARS_methods.csv.gz`, onset, end, length and total EIP days for
-every cell, year and method) is added with `python tools/export_results.py`.
+Files written by `python tools/verify_release.py --data-root <folder of the published run>`:
 
-`python tools/check_against_manuscript.py` compares a regenerated run with these tables and with the numbers printed
-in the manuscript.
+| File | Content |
+|---|---|
+| `season_ALL_YEARS_methods.csv.gz` | per-cell file of step05, unchanged: onset, end, season length, total EIP days, number of runs and suitable days outside the season for every cell, year and method (2,912 × 20 × 4 = 232,960 rows) |
+| `summary_ALL_YEARS_methods.csv` | per-year summary written by step05 |
+| `qc_gaps_summary.csv` | completeness of the hourly input per year: hours without a value inside the study area, and whether the hourly file equals the output of step 3b (present when stage 3 was run) |
+| `VERIFICATION.txt` | record of the verification: stages, software versions, result |
+
+In the three `META_*.json` files the folder of the run on the author's computer is written as `<data root>`;
+nothing else was changed.
+
+All files in this folder are derived from ERA5-Land: contains modified Copernicus Climate Change Service
+information 2026. Neither the European Commission nor ECMWF is responsible for any use that may be made of the
+Copernicus information or data it contains.
+
+`python tools/check_against_manuscript.py --pack <folder of a regenerated step09 pack>` compares a regenerated run
+with these tables and with the numbers printed in the manuscript.

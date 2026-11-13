@@ -15,6 +15,7 @@ dependencies:
   - xarray
   - netcdf4
   - h5netcdf
+  - h5py                   # needed by the h5netcdf engine (steps 02-04)
   - cftime
   - dask-core
   - cfgrib

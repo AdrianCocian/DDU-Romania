@@ -23,10 +23,10 @@
   ],
   "use_year_wrap": true,
   "dirs": {
-    "root": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED",
-    "in_filled": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\out\\06_filled_yearly",
-    "in_tails": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\out\\06_filled_yearly_tails_29d",
-    "out_csv": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\out\\08_season_swrap\\win30\\csv"
+    "root": "<data root>",
+    "in_filled": "<data root>\\out\\06_filled_yearly",
+    "in_tails": "<data root>\\out\\06_filled_yearly_tails_29d",
+    "out_csv": "<data root>\\out\\08_season_swrap\\win30\\csv"
   },
   "timestamp": "2026-09-08T10:26:08"
 }

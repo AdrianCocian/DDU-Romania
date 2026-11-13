@@ -2,7 +2,7 @@
   "window_days": 30,
   "variable": "season_length",
   "input_mode": "season_csv_only",
-  "season_csv_used": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\out\\08_season_swrap\\win30\\csv\\season_ALL_YEARS_methods.csv",
+  "season_csv_used": "<data root>\\out\\08_season_swrap\\win30\\csv\\season_ALL_YEARS_methods.csv",
   "class_breaks_reference_method": "hourly_sum",
   "class_breaks_percentiles_P25_P50_P75_P90": [
     81.0,
@@ -45,7 +45,7 @@
     43.5,
     30.1
   ],
-  "outline_shp": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\ro_frontiera_poligon.shp",
+  "outline_shp": "<data root>\\ro_frontiera_poligon.shp",
   "map_kind": "grid",
   "methods_selected": [
     "midpoint",
@@ -54,5 +54,5 @@
     "be_sine"
   ],
   "consensus_enabled": true,
-  "output_dir": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\out\\12_method_compare\\win30\\7_suitability_classes"
+  "output_dir": "<data root>\\out\\12_method_compare\\win30\\7_suitability_classes"
 }
