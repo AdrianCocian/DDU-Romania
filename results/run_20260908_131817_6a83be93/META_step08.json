@@ -1,0 +1,63 @@
+{
+  "script": "8.per_year_per_pixel.py (win30) — FINAL, rev. Sep 2026 (stats complete)",
+  "win": 30,
+  "root": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED",
+  "methods_csv": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\out\\08_season_swrap\\win30\\csv\\season_ALL_YEARS_methods.csv",
+  "in6_dir": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\out\\12_method_compare\\win30\\6_method_comparison",
+  "out_dir": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\out\\12_method_compare\\win30\\8_statistics",
+  "years": null,
+  "bbox": [
+    48.5,
+    19.9,
+    43.5,
+    30.1
+  ],
+  "methods": [
+    "midpoint",
+    "daily_mean",
+    "hourly_sum",
+    "be_sine"
+  ],
+  "variables": [
+    "season_length",
+    "start_doy",
+    "end_doy",
+    "total_eip_days"
+  ],
+  "pair_focus": null,
+  "delta_flag": null,
+  "style": "seaborn-v0_8-whitegrid",
+  "fig_dpi": 160,
+  "map_kind": "grid",
+  "outline_shp": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\ro_frontiera_poligon.shp",
+  "calendar_dates": true,
+  "thr": [
+    5.0,
+    10.0
+  ],
+  "stats": true,
+  "stats_max_n": 5000,
+  "scatter_max": 80000,
+  "out7_name": "7_suitability_classes",
+  "ref_method": "hourly_sum",
+  "software": {
+    "python": "3.11.13",
+    "numpy": "1.26.4",
+    "pandas": "3.0.0",
+    "scipy": "1.16.2",
+    "matplotlib": "3.10.6",
+    "diptest": "0.10.0"
+  },
+  "stats_settings": {
+    "alpha": 0.05,
+    "mk_tie_correction": true,
+    "mk_continuity_correction": true,
+    "sen_ci": "95 %, rank method (Gilbert 1987; Helsel & Hirsch 2002)",
+    "sen_intercept": "median(x) - slope*median(t), t=0 at first year",
+    "shapiro_subsample_seed": 42,
+    "shapiro_max_n": 5000,
+    "dip_pvalue": "diptest table interpolation (boot_pval=False)",
+    "class_reference_method": "hourly_sum"
+  },
+  "timestamp": "2026-09-10T17:16:32Z"
+}

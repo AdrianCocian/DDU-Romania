@@ -1,0 +1,58 @@
+{
+  "window_days": 30,
+  "variable": "season_length",
+  "input_mode": "season_csv_only",
+  "season_csv_used": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\out\\08_season_swrap\\win30\\csv\\season_ALL_YEARS_methods.csv",
+  "class_breaks_reference_method": "hourly_sum",
+  "class_breaks_percentiles_P25_P50_P75_P90": [
+    81.0,
+    108.0,
+    124.0,
+    135.0
+  ],
+  "class_breaks_days": [
+    "0",
+    "1-80",
+    "81-107",
+    "108-123",
+    "124-134",
+    ">=135"
+  ],
+  "class_breaks_rule": "0 = no season; 1: < P25; 2: [P25,P50); 3: [P50,P75); 4: [P75,P90); 5: >= P90 (percentiles of season_length > 0, all years and grid cells)",
+  "n_cell_years_reference_with_season": 53278,
+  "n_cell_years_reference_total": 58240,
+  "pct_cell_years_reference_no_season": 8.52,
+  "class_labels": [
+    "0 no season",
+    "1 lowest",
+    "2 below median",
+    "3 above median",
+    "4 high",
+    "5 highest"
+  ],
+  "colors_0to5": [
+    "#e6e6e6",
+    "#4da3ff",
+    "#66c2a5",
+    "#a6d854",
+    "#fdae61",
+    "#d73027"
+  ],
+  "nan_color": "#FFF5B1",
+  "bbox": [
+    48.5,
+    19.9,
+    43.5,
+    30.1
+  ],
+  "outline_shp": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\ro_frontiera_poligon.shp",
+  "map_kind": "grid",
+  "methods_selected": [
+    "midpoint",
+    "daily_mean",
+    "hourly_sum",
+    "be_sine"
+  ],
+  "consensus_enabled": true,
+  "output_dir": "E:\\PROIECT DDU\\BACK UP\\DDU_PROJECT_UPDATED\\out\\12_method_compare\\win30\\7_suitability_classes"
+}
