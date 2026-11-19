@@ -147,6 +147,7 @@ def test_changed_onset_with_unchanged_length_stops_at_stage_4(published_like):
     assert r.returncode == 1, out[-4000:]
     assert "[PASS] stage 2:" in out and "[PASS] stage 3:" in out and "[FAIL] stage 4:" in out
     assert "season_start_doy: 1 rows differ" in out
+    assert "not explained by rounding at the threshold" in out            # recomputed in both precisions, rejected
     assert not results.exists()
 
 
@@ -161,6 +162,51 @@ def test_difference_outside_the_analysed_columns_is_reported_but_does_not_fail(p
     assert "[PASS] stage 4:" in out and "6 of 6 analysed columns identical" in out
     note = "other column, not part of the verdict - outside_eip_days: 1 rows differ"
     assert note in out and note in (results / "VERIFICATION.txt").read_text(encoding="utf-8")
+
+
+def test_rounding_check_recomputes_step05_and_accepts_only_days_at_the_threshold(published_like):
+    """The single-precision recomputation of the rounding check is step05 itself: the season rule applied to its
+    sums gives the per-cell file for every cell. A published row that differs by one day is accepted only when the
+    30-day sum of that day lies within the tolerance around the threshold."""
+    import importlib.util
+
+    import numpy as np
+    base, data, reference = published_like
+    spec = importlib.util.spec_from_file_location("verify_release_mod", REPO / "tools" / "verify_release.py")
+    vr = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(vr)
+    s5 = vr.load_step05()
+    s5.DIR_IN_FILLED = data / "out" / "06_filled_yearly"
+    s5.DIR_TAILS_29 = data / "out" / "06_filled_yearly_tails_29d"
+    pub = pd.read_csv(data.joinpath(*CSV, "season_ALL_YEARS_methods.csv"))
+    for year, method in ((2005, "be_sine"), (2007, "hourly_sum"), (2008, "daily_mean")):   # 2005: no year wrap
+        single, double = (vr.window_sums(s5, year, method, double=d) for d in (False, True))
+        rows = pub[(pub["year"] == year) & (pub["method"] == method)]
+        assert len(rows) > 0
+        for r in rows.to_dict("records"):
+            got = vr.season_values(s5, single["sums"][:, r["i"], r["j"]] >= single["thr"], single["t_daily"])
+            assert vr._same_values(got, r), (year, method, r["i"], r["j"], got)
+        # the tolerance is several times the largest rounding error of the single-precision sums
+        rel = np.abs(single["sums"].astype(float) - double["sums"]) / single["thr"]
+        assert np.nanmax(rel) < vr.TIE_REL_TOL / 3, (year, method, np.nanmax(rel))
+
+    year, method = 2007, "hourly_sum"
+    single, double = (vr.window_sums(s5, year, method, double=d) for d in (False, True))
+    thr = single["thr"]
+    r = pub[(pub["year"] == year) & (pub["method"] == method) & (pub["season_length"] > 20)].iloc[0]
+    s64 = double["sums"][:, int(r["i"]), int(r["j"])]
+    k = int(np.nanargmin(np.abs(s64 - thr)))                       # the day closest to the threshold
+    flags = s64 >= thr
+    flags[k] = not flags[k]
+    moved = vr.season_values(s5, flags, single["t_daily"])
+    diff = pd.DataFrame([{"year": year, "method": method, "i": int(r["i"]), "j": int(r["j"]),
+                          **{x: r[c] for c in vr.CORE for x in (c, c + "_pub")},
+                          **{c + "_pub": moved[c] for c in vr.SEASON_KEYS}}])
+    ok, notes = vr.explain_threshold_ties(diff, data)               # default tolerance: that day is not at it
+    assert not ok and "not explained by rounding at the threshold" in notes[-1], notes
+    rel = abs(s64[k] - thr) / thr
+    ok, notes = vr.explain_threshold_ties(diff, data, rel_tol=rel * 1.000001 + 1e-15)
+    assert ok and "rounding at the threshold - 30-day sum ending" in notes[-1], notes
 
 
 def test_work_folder_must_not_be_the_data_folder(published_like):

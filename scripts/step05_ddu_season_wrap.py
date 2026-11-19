@@ -238,26 +238,28 @@ def ddu_hourly_sum(t2m_hourly):
     return pos.resample(time="1D", label="left").sum()
 
 
-def ddu_be_sine(Tmin, Tmax, Tbase=TBASE):
+def ddu_be_sine(Tmin, Tmax, Tbase=TBASE, dtype="float32"):
+    # dtype: precision of the result. The published run used float32; tools/verify_release.py also evaluates
+    # it in float64 to recognise days whose 30-day sum lies at the threshold within rounding.
     Tm = (Tmin + Tmax) / 2.0
     A = (Tmax - Tmin) / 2.0
-    DD = xr.zeros_like(Tm, dtype="float32")
+    DD = xr.zeros_like(Tm, dtype=dtype)
     below = Tmax <= Tbase
     above = Tmin >= Tbase
     partial = (~below) & (~above) & (A > 0)
 
-    DD = xr.where(above, (Tm - Tbase).astype("float32"), DD)
+    DD = xr.where(above, (Tm - Tbase).astype(dtype), DD)
 
     y = xr.where(partial, (Tbase - Tm) / xr.where(A == 0, np.nan, A), 0.0)
     y = xr.where(partial, xr.apply_ufunc(np.clip, y, -1.0, 1.0, dask="allowed"), y)
     th = xr.where(partial, xr.apply_ufunc(np.arcsin, y, dask="allowed"), 0.0)
     part = ((Tm - Tbase) * (np.pi / 2 - th) + A * xr.apply_ufunc(np.cos, th, dask="allowed")) / np.pi
-    part = xr.where(part > 0, part, 0.0).astype("float32")
+    part = xr.where(part > 0, part, 0.0).astype(dtype)
 
     return xr.where(partial, part, DD)
 
 
-def build_ddu(method: str, t2m, Tmin, Tmax, Tavg, thr_dd, thr_dh):
+def build_ddu(method: str, t2m, Tmin, Tmax, Tavg, thr_dd, thr_dh, dtype="float32"):
     if method == "midpoint":
         return ddu_midpoint(Tmin, Tmax), thr_dd, "DDU_midpoint"
     if method == "daily_mean":
@@ -265,7 +267,7 @@ def build_ddu(method: str, t2m, Tmin, Tmax, Tavg, thr_dd, thr_dh):
     if method == "hourly_sum":
         return ddu_hourly_sum(t2m), thr_dh, "DDU_hourly_sum"
     if method == "be_sine":
-        return ddu_be_sine(Tmin, Tmax), thr_dd, "DDU_be_sine"
+        return ddu_be_sine(Tmin, Tmax, dtype=dtype), thr_dd, "DDU_be_sine"
     raise ValueError(method)
 
 
@@ -574,7 +576,7 @@ def _upgrade_per_year_summaries_from_seasons(year: int, window_days: int, method
 # ------------------------- tails (year-wrap) -------------------------
 def _prev_tail_ddu(year: int, method: str, lat: str, lon: str,
                    ref_da: xr.DataArray, first_time: pd.Timestamp,
-                   pad_days: int, dir_tails: Path):
+                   pad_days: int, dir_tails: Path, dtype=None):
     # Tail filenames expected from your tails step:
     #   {YYYY-1}_tail29d.nc or {YYYY-1}_tail14d.nc
     suffix = f"tail{pad_days}d"
@@ -589,7 +591,7 @@ def _prev_tail_ddu(year: int, method: str, lat: str, lon: str,
         return empty, False, "tail_missing"
 
     with xr.open_dataset(p, decode_timedelta=True) as dth:
-        t2m_prev = dth["t2m"]
+        t2m_prev = dth["t2m"] if dtype is None else dth["t2m"].astype(dtype)   # dtype: see ddu_be_sine
         Tmin_p, Tmax_p, Tavg_p = daily_agg(t2m_prev)
         if method == "midpoint":
             ddu_p = ddu_midpoint(Tmin_p, Tmax_p)
@@ -598,7 +600,7 @@ def _prev_tail_ddu(year: int, method: str, lat: str, lon: str,
         elif method == "hourly_sum":
             ddu_p = ddu_hourly_sum(t2m_prev)
         elif method == "be_sine":
-            ddu_p = ddu_be_sine(Tmin_p, Tmax_p)
+            ddu_p = ddu_be_sine(Tmin_p, Tmax_p, dtype=dtype or "float32")
         else:
             raise ValueError(method)
 
