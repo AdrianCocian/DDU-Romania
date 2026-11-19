@@ -44,6 +44,17 @@ The last comparison needs the hourly files (about 4 GB), which are not in the re
 `VERIFICATION.txt` file archived next to the per-cell values. That file lists the seven stages, the software
 versions used and whether the verification was complete.
 
+The verification of 19 November 2026, with the software versions recorded for the published run, passed all
+seven stages. Step 5 reproduced 232,959 of the 232,960 rows in the analysed columns. The remaining row (2018,
+hourly sum, 47.3° N 26.8° E) differs by one day: its 30-day sum ending on 30 May 2018 is 3119.999695 degree-hours
+in double precision and exactly 3120, the threshold, in single precision. The published run counted that day as
+not suitable, as double precision does (season 31 May–25 September, 118 days); the recomputation counts it as
+suitable (119 days). The column `outside_runs_lengths`, which no analysis uses, differs in 1,272 rows only in how
+the numbers are written: `19.0` in the published file, `19` now. Step 5 writes `19.0` when it rebuilds the
+all-years file from per-year files in which no cell has more than one run of suitable days outside the season,
+because pandas then reads the column as numbers. All 252 numbers quoted in the article and the 11 archived tables
+were reproduced.
+
 ## Checking
 
 1. `pytest -m "not slow"`: about one minute, no download.
