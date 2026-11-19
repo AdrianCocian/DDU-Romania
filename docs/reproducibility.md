@@ -14,6 +14,13 @@ outputs; step08 also records the library versions.
   window, 3-day rule, year wrap); otherwise the year is recomputed. `--force` always recomputes.
 - A run of step05 on some years writes `season_ALL_YEARS_methods.csv` for those years only; run it on the whole
   period before steps 6–10.
+- Step05 adds the degree-days in single precision (float32), as in the published run. When the exact 30-day sum of
+  a day lies within rounding of the threshold, the order of summation, which depends on the versions of NumPy and
+  xarray and on optional accelerators such as bottleneck, can decide whether that day is suitable.
+  `tools/verify_release.py` therefore recomputes every row that differs from the published run in single and in
+  double precision, and accepts it only when such a day explains the difference: a 30-day sum within 0.001 % of the
+  threshold (0.03 degree-hours of 3120, 0.0013 DDU of 130). The tolerance is at least three times the largest
+  rounding error of the single-precision sums; `tests/test_verify_release.py` checks this on synthetic data.
 
 ## Provenance of the published run
 
@@ -31,7 +38,7 @@ after the run, its equivalence with the published run is demonstrated rather tha
 | Study area | the 2,912 cells against the boundary file | `tests/test_stats_published.py` |
 | DDU formulas and the season rule | temperatures with a known answer; a second implementation written from the definitions in the article | `tests/test_ddu_formulas.py`, `tests/test_season_rule.py`, `tests/test_known_answer_seasons.py`, `tests/test_independent_reimplementation.py` |
 | Chain from the downloads to the seasons | monthly files in the form delivered by the CDS through steps 2–5 | `tests/test_from_raw_months.py` |
-| Hourly files and per-cell seasons of the published run | step 3b and step 5 of this repository run on the original hourly files; every cell, year, method and column compared | `tools/verify_release.py`; record in `results/run_20260908_131817_6a83be93/VERIFICATION.txt` |
+| Hourly files and per-cell seasons of the published run | step 3b and step 5 of this repository run on the original hourly files; every cell, year, method and column compared; a row that differs is recomputed in double precision and accepted only when rounding at the threshold explains it | `tools/verify_release.py`; record in `results/run_20260908_131817_6a83be93/VERIFICATION.txt` |
 
 The last comparison needs the hourly files (about 4 GB), which are not in the repository; its outcome is the
 `VERIFICATION.txt` file archived next to the per-cell values. That file lists the seven stages, the software
@@ -50,10 +57,11 @@ versions used and whether the verification was complete.
 4. With the hourly files of a run: `python tools/verify_release.py --data-root <folder that contains out/>`.
    Stages: (1) per-cell file found; (2) its season lengths are those archived; (3) no hour is missing and the
    files in `out/06_filled_yearly` are what step 3b writes from `out/04_yearly_raw`; (4) step 5 gives the same
-   per-cell file; (5) steps 6–10 run; (6) numbers of the article and tables; (7) per-cell file, summary,
-   completeness report and `VERIFICATION.txt` written to `results/`. Nothing is written into the data folder; the
-   work folder is `out/_verify_release`. A stage whose input is absent is reported as skipped and the result is
-   marked incomplete.
+   per-cell file, apart from rows explained by rounding at the threshold (see Determinism), each listed with its
+   30-day sums in `VERIFICATION.txt`; (5) steps 6–10 run; (6) numbers of the article and tables; (7) per-cell
+   file, summary, completeness report and `VERIFICATION.txt` written to `results/`. Nothing is written into the
+   data folder; the work folder is `out/_verify_release`. A stage whose input is absent is reported as skipped
+   and the result is marked incomplete.
 
 ## Another region or period
 
