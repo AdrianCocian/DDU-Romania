@@ -1,0 +1,47 @@
+Verification of the release against the published run
+======================================================
+date: 2026-11-19 17:17
+system: Windows 10
+software: python 3.11.13, numpy 1.26.4, pandas 3.0.0, scipy 1.16.2, matplotlib 3.10.6, diptest 0.10.0, xarray 2026.9.0
+software of the published run: python 3.11.13, numpy 1.26.4, pandas 3.0.0, scipy 1.16.2, matplotlib 3.10.6, diptest 0.10.0
+code: git commit c23668640c45, no local changes to tracked files
+published run: run_id 20260908_131817_6a83be93, years 2005-2024
+command: python tools/verify_release.py --data-root <folder of the published run>
+
+[PASS] stage 1: per-cell file of the published run - 45.0 MB; run_id 20260908_131817_6a83be93; min_gap_days 4
+[PASS] stage 2: season lengths equal to the archived published run - 58240 cell-years compared; rows on one side only: 0; differing values by method: {'midpoint': 0, 'daily_mean': 0, 'hourly_sum': 0, 'be_sine': 0}
+[PASS] stage 3: hourly input complete and equal to the output of step 03b - 20 of 20 years checked; missing hours inside the mask: 0; temperature identical in 20 of 20 files; notes: ['identical (coordinate dayofyear differs)']
+[PASS] stage 4: step05 from the hourly files reproduces the published seasons - 232960 rows (cell x year x method); rows on one side only: 0; analysed columns (lat, lon, season_start_doy, season_end_doy, season_length, total_eip_days) identical in 232959 rows; 1 row differs only by rounding at the threshold (see Stage 4 in detail); 22 of 25 other columns identical
+[PASS] stage 5: steps 06-10 run on the per-cell file of the published run - step06 comparison, step07 classes, step08 statistics, step09 tables, step10 figures
+[PASS] stage 6: numbers printed in the article and archived tables reproduced - Part A: 252 of 252 reproduced; Part B: 11 of 11 tables identical
+[PASS] stage 7: archive - season_ALL_YEARS_methods.csv.gz (3.7 MB) in run_20260908_131817_6a83be93
+
+result: complete - every stage passed
+
+Stage 4 in detail:
+  season_start_doy: 1 rows differ (first: {'year': 2018, 'method': 'hourly_sum', 'i': 37, 'j': 65})
+  season_length: 1 rows differ (first: {'year': 2018, 'method': 'hourly_sum', 'i': 37, 'j': 65})
+  total_eip_days: 1 rows differ (first: {'year': 2018, 'method': 'hourly_sum', 'i': 37, 'j': 65})
+  other column, not part of the verdict - season_start: 1 rows differ (first: {'year': 2018, 'method': 'hourly_sum', 'i': 37, 'j': 65}; published '2018-05-31', recomputed '2018-05-30')
+  other column, not part of the verdict - season_start_angle: 1 rows differ (first: {'year': 2018, 'method': 'hourly_sum', 'i': 37, 'j': 65}; published '2.5821309481559944', recomputed '2.5649167418349545')
+  other column, not part of the verdict - outside_runs_lengths: 1272 rows differ, all only in how the numbers are written (first: {'year': 2013, 'method': 'daily_mean', 'i': 2, 'j': 26}; published '19.0', recomputed '19')
+  rows that differ in an analysed column: 1. Each was recomputed in single precision (as step05) and in double precision; a row is accepted only if the two precisions disagree on no day other than days whose 30-day sum lies within 0.001 % of the threshold, and the published values follow from step05's season rule with each such day counted as suitable or not
+  2018 hourly_sum i=37 j=65 (47.3000 N, 26.8000 E): rounding at the threshold - 30-day sum ending 2018-05-30 (DOY 150) = 3119.999695 in double precision and 3120.000000 in single precision (threshold 3120, difference -0.000305); counted as not suitable in the published run, as in double precision; published row: onset 151, end 268, length 118, total EIP days 118; recomputed row: onset 150, end 268, length 119, total EIP days 119
+
+Stage 6 in detail:
+  Part A - numbers printed in the manuscript (252 checks; tables: <work folder>\out\12_method_compare\win30\00_MANUSCRIPT_PACK)
+    Part A: 252 of 252 reproduced
+  Part B - tables compared with the published run (<archived tables>)
+    T1_trend_MK_Sen_all_methods            rows     40  OK
+    T2_distribution_diagnostics_summary    rows     20  OK
+    T3                                     rows      8  OK
+    T4_class_agreement_pooled              rows      4  OK
+    T4b_class_agreement_by_year            rows     80  OK
+    T5_national_summary_all_methods        rows    400  OK
+    T6b_pairwise_delta_by_year             rows    480  OK
+    T7_suitability_class_counts_by_year    rows    600  OK
+    T8_bias_by_reference_class             rows     28  OK
+    T9_median_gap_diagnostic               rows     80  OK
+    per_cell_classes_ALL_YEARS             rows  58240  OK
+    Part B: 11 of 11 tables identical
+  RESULT: all checks passed

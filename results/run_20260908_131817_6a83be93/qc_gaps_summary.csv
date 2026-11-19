@@ -1,0 +1,21 @@
+year,status,hours,cells_inside,missing_hours_inside_before,filled_shortgap,filled_climatology,filled_spatial,missing_after,pct_missing_before,filled_file_check
+2005,ok,8760,2912,0,0,0,0,0,0.0,identical
+2006,ok,8760,2912,0,0,0,0,0,0.0,identical
+2007,ok,8760,2912,0,0,0,0,0,0.0,identical
+2008,ok,8784,2912,0,0,0,0,0,0.0,identical (coordinate dayofyear differs)
+2009,ok,8760,2912,0,0,0,0,0,0.0,identical
+2010,ok,8760,2912,0,0,0,0,0,0.0,identical
+2011,ok,8760,2912,0,0,0,0,0,0.0,identical
+2012,ok,8784,2912,0,0,0,0,0,0.0,identical (coordinate dayofyear differs)
+2013,ok,8760,2912,0,0,0,0,0,0.0,identical
+2014,ok,8760,2912,0,0,0,0,0,0.0,identical
+2015,ok,8760,2912,0,0,0,0,0,0.0,identical
+2016,ok,8784,2912,0,0,0,0,0,0.0,identical (coordinate dayofyear differs)
+2017,ok,8760,2912,0,0,0,0,0,0.0,identical
+2018,ok,8760,2912,0,0,0,0,0,0.0,identical
+2019,ok,8760,2912,0,0,0,0,0,0.0,identical
+2020,ok,8784,2912,0,0,0,0,0,0.0,identical (coordinate dayofyear differs)
+2021,ok,8760,2912,0,0,0,0,0,0.0,identical
+2022,ok,8760,2912,0,0,0,0,0,0.0,identical
+2023,ok,8760,2912,0,0,0,0,0,0.0,identical
+2024,ok,8784,2912,0,0,0,0,0,0.0,identical (coordinate dayofyear differs)
