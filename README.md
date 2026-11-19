@@ -117,9 +117,9 @@ python scripts/step09_manuscript_statistics.py --season-csv results/run_20260908
 python tools/check_against_manuscript.py --pack out/pack
 ```
 
-The check recomputes the values quoted in the article (class limits, agreement, variance shares, trends, class
-shares, national medians and means, paired differences) and compares every table with the archived tables; it ends
-with `RESULT: all checks passed` when the run reproduces the article.
+The check recomputes the 252 values quoted in the article (class limits, agreement, variance shares, trends, class
+shares, share of grid cells with a season, national medians and means, paired differences) and compares every table
+with the archived tables; it ends with `RESULT: all checks passed` when the run reproduces the article.
 
 On a computer that holds the hourly files of a run, one command repeats the whole comparison (hourly files against
 step 3b, seasons recomputed with step 5, steps 6–10, numbers of the article) without writing into the data folder:

@@ -27,7 +27,7 @@ after the run, its equivalence with the published run is demonstrated rather tha
 | What is compared | How | Where |
 |---|---|---|
 | Statistics, classes, trends, agreement, tables T1–T9 | recomputed from the archived per-cell values and compared with the archived tables | `tests/test_stats_published.py` |
-| Every number quoted in the article | 165 values of the Results section recomputed from the tables | `tools/check_against_manuscript.py`, `tests/test_stats_published.py` |
+| Every number quoted in the article | 252 values quoted in the Abstract, Results, Discussion and Conclusions recomputed from the tables | `tools/check_against_manuscript.py`, `tests/test_stats_published.py` |
 | Study area | the 2,912 cells against the boundary file | `tests/test_stats_published.py` |
 | DDU formulas and the season rule | temperatures with a known answer; a second implementation written from the definitions in the article | `tests/test_ddu_formulas.py`, `tests/test_season_rule.py`, `tests/test_known_answer_seasons.py`, `tests/test_independent_reimplementation.py` |
 | Chain from the downloads to the seasons | monthly files in the form delivered by the CDS through steps 2–5 | `tests/test_from_raw_months.py` |

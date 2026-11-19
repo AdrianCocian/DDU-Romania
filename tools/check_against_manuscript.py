@@ -3,9 +3,10 @@
 """
 check_against_manuscript.py - does a set of result tables reproduce the paper?
 
-Part A  every number quoted in the Results text of the manuscript (season length, onset, end, total EIP days,
-        suitability classes, agreement between methods, trends, variance shares) is recomputed from the tables
-        and compared after rounding half-up to the decimals printed in the paper.
+Part A  every number quoted in the text of the manuscript (Abstract, Results, Discussion and Conclusions:
+        season length, onset, end, total EIP days, share of grid cells with a season, suitability classes,
+        agreement between methods, trends, variance shares) is recomputed from the tables and compared after
+        rounding half-up to the decimals printed in the paper.
 Part B  every table is compared with the tables archived from the published run
         (results/run_20260908_131817_6a83be93/), tolerance 1e-6 relative.
 
@@ -17,6 +18,7 @@ Usage
 
 Exit code 0 = everything matches, 1 = at least one difference, 2 = input missing.
 The tables of Part A are those written by step09 (T1-T9, per_cell_classes_ALL_YEARS.csv).
+The values are those of the second revision of the manuscript (November 2026).
 """
 from __future__ import annotations
 
@@ -76,6 +78,8 @@ class Tables:
     @property
     def t7(self): return self._read("T7_suitability_class_counts_by_year.csv")
     @property
+    def t8(self): return self._read("T8_bias_by_reference_class.csv")
+    @property
     def t9(self): return self._read("T9_median_gap_diagnostic.csv")
     @property
     def cells(self): return self._read("per_cell_classes_ALL_YEARS.csv")
@@ -117,6 +121,10 @@ class Tables:
     def class_pct(self, year, classes, method="hourly_sum") -> float:
         q = self.t7[(self.t7.method == method) & (self.t7.year == year)]
         return 100.0 * float(q[q["class"].isin(classes)]["count"].sum()) / float(q["count"].sum())
+
+    def bias(self, method, ref_class, col) -> float:
+        q = self.t8[(self.t8.method == method) & (self.t8.reference_class.astype(str) == str(ref_class))]
+        return float(q[col].iloc[0])
 
     def gap(self, method, year, col) -> float:
         q = self.t9[(self.t9.method == method) & (self.t9.year == year)]
@@ -172,6 +180,59 @@ def manuscript_checks(T: Tables):
     add("2017: class 5 (%)", lambda: T.class_pct(2017, [5]), 0.0, 1)
     add("2024: cells without a season (%)", lambda: T.class_pct(2024, [0]), 1.4, 1)
     add("2024: classes 3-5 (%)", lambda: T.class_pct(2024, [3, 4, 5]), 62.1, 1)
+    add("Cell-years without a season under the hourly sum (%)", lambda: 100.0 * (1.0 - n_season() / len(cells())), 8.5, 1)
+    add("2005: cells without a season (%)", lambda: T.class_pct(2005, [0]), 15.4, 1)
+    add("2005: classes 3-5 (%)", lambda: T.class_pct(2005, [3, 4, 5]), 31.6, 1)
+
+    def ge3_by_year():
+        return pd.Series({int(y): T.class_pct(int(y), [3, 4, 5]) for y in sorted(T.t7.year.unique())})
+
+    add("Classes 3-5, lowest yearly share (%)", lambda: ge3_by_year().min(), 12.3, 1)
+    add("Classes 3-5, year of the lowest share", lambda: ge3_by_year().idxmin(), 2021)
+    add("Classes 3-5, highest yearly share (%)", lambda: ge3_by_year().max(), 65.0, 1)
+    add("Classes 3-5, year of the highest share", lambda: ge3_by_year().idxmax(), 2015)
+    add("Classes 3-5, mean share 2005-2009 (%)", lambda: ge3_by_year().loc[2005:2009].mean(), 41.6, 1)
+    add("Classes 3-5, mean share 2020-2024 (%)", lambda: ge3_by_year().loc[2020:2024].mean(), 45.1, 1)
+
+    def cells_year(year):
+        d = cells()
+        return d[d["year"] == year]
+
+    add("2024: grid cells in class 5", lambda: int((cells_year(2024)["class_hourly_sum"] == 5).sum()), 88)
+    add("2024: class-5 cells at or south of 44.6 N (%)",
+        lambda: 100.0 * float((cells_year(2024).loc[cells_year(2024)["class_hourly_sum"] == 5, "lat"] <= 44.6).mean()), 98)
+    add("2024: grid cells in classes 0-1", lambda: int((cells_year(2024)["class_hourly_sum"] <= 1).sum()), 410)
+    add("2024: classes 0-1 (%)", lambda: T.class_pct(2024, [0, 1]), 14.1, 1)
+
+    # ---- share of grid cells with a season (section 3.1, notes to Table 3, Discussion)
+    def with_season(method, year):
+        return T.nat("season_length", method, year, "pct_with_season")
+
+    for year, lo, hi in ((2005, 81.2, 84.6), (2024, 97.8, 98.6)):
+        add(f"Cells with a season {year}, four methods: lowest (%)", lambda y=year: min(with_season(m, y) for m in METHODS), lo, 1)
+        add(f"Cells with a season {year}, four methods: highest (%)", lambda y=year: max(with_season(m, y) for m in METHODS), hi, 1)
+    for year, lo, hi in ((2005, 15, 19), (2024, 1, 2)):
+        add(f"Cells without a season {year}, four methods: lowest (%, whole number)",
+            lambda y=year: 100.0 - max(with_season(m, y) for m in METHODS), lo)
+        add(f"Cells without a season {year}, four methods: highest (%, whole number)",
+            lambda y=year: 100.0 - min(with_season(m, y) for m in METHODS), hi)
+    cons_season = lambda: T.nat_series("season_length", "consensus", "pct_with_season")          # noqa: E731
+    add("Consensus series, cells with a season: lowest yearly share (%)", lambda: cons_season().min(), 83.6, 1)
+    add("Consensus series, cells with a season: year of the lowest share", lambda: cons_season().idxmin(), 2005)
+    add("Consensus series, cells with a season: highest yearly share (%)", lambda: cons_season().max(), 98.4, 1)
+    add("Consensus series, cells with a season: year of the highest share", lambda: cons_season().idxmax(), 2024)
+    add("Consensus series, cells with a season 2011 (%)", lambda: cons_season().loc[2011], 84.5, 1)
+    add("Consensus series, cells with a season 2012 (%)", lambda: cons_season().loc[2012], 97.4, 1)
+    add("Consensus series, cells with a season: lowest share, whole number (%)", lambda: cons_season().min(), 84)
+    add("Consensus series, cells with a season: highest share, whole number (%)", lambda: cons_season().max(), 98)
+
+    # ---- maps of the consensus season length (Fig. 1, section 3.1)
+    def cons_share(year, fn):
+        return 100.0 * float(fn(cells_year(year)["consensus"].to_numpy(float)).mean())
+
+    for year, long_, short in ((2005, 39.6, 21.0), (2011, 54.6, 20.7), (2017, 48.8, 9.4), (2024, 67.5, 3.5)):
+        add(f"Consensus season longer than 100 days, {year} (% of cells)", lambda y=year: cons_share(y, lambda v: v > 100), long_, 1)
+        add(f"Consensus season of 20 days or less, or none, {year} (% of cells)", lambda y=year: cons_share(y, lambda v: v <= 20), short, 1)
 
     # ---- season onset and end (sections 3.1.1, 3.1.2)
     def per_method(var, year, col="median"):
@@ -189,6 +250,10 @@ def manuscript_checks(T: Tables):
     add("Consensus onset 2005, P25 (DOY)", lambda: T.nat("start_doy", "consensus", 2005, "p25"), 164, 1)
     add("Consensus onset 2005, P75 (DOY)", lambda: T.nat("start_doy", "consensus", 2005, "p75"), 202, 1)
     add("Consensus onset 2024, median (DOY)", lambda: T.nat("start_doy", "consensus", 2024), 161.5, 1)
+    add("Consensus onset 2024, P25 (DOY)", lambda: T.nat("start_doy", "consensus", 2024, "p25"), 157.5, 1)
+    add("Consensus onset 2024, P75 (DOY)", lambda: T.nat("start_doy", "consensus", 2024, "p75"), 172, 1)
+    add("Consensus onset, 2005 minus 2024 (days)",
+        lambda: T.nat("start_doy", "consensus", 2005) - T.nat("start_doy", "consensus", 2024), 8.5, 1)
     add("Consensus onset, earliest yearly median (DOY)", lambda: T.nat_series("start_doy", "consensus").min(), 149.5, 1)
     add("Consensus onset, year of the earliest median", lambda: T.nat_series("start_doy", "consensus").idxmin(), 2018)
     add("Consensus onset, latest yearly median (DOY)", lambda: T.nat_series("start_doy", "consensus").max(), 178.5, 1)
@@ -202,6 +267,26 @@ def manuscript_checks(T: Tables):
     add("Consensus end 2023, median (DOY)", lambda: T.nat("end_doy", "consensus", 2023), 283, 1)
     add("Consensus end 2024, median (DOY)", lambda: T.nat("end_doy", "consensus", 2024), 274, 1)
     add("Consensus end, year of the latest median", lambda: T.nat_series("end_doy", "consensus").idxmax(), 2023)
+    add("Consensus end, earliest yearly median (DOY)", lambda: T.nat_series("end_doy", "consensus").min(), 255.5, 1)
+    add("Consensus end, year of the earliest median", lambda: T.nat_series("end_doy", "consensus").idxmin(), 2021)
+    for m, label, ref_med, all_lo, all_hi in (("be_sine", "BE-sine", 0, 0, 1), ("daily_mean", "hourly average", -1, -2, -1),
+                                              ("midpoint", "min-max average", -1, -2, -1)):
+        add(f"Season end, {label} minus hourly sum, median difference, reference years: lowest (days)",
+            lambda m=m: T.delta("end_doy", m, "hourly_sum", years=REF_YEARS).min(), ref_med)
+        add(f"Season end, {label} minus hourly sum, median difference, reference years: highest (days)",
+            lambda m=m: T.delta("end_doy", m, "hourly_sum", years=REF_YEARS).max(), ref_med)
+        add(f"Season end, {label} minus hourly sum, median difference, 20 years: lowest (days)",
+            lambda m=m: T.delta("end_doy", m, "hourly_sum").min(), all_lo)
+        add(f"Season end, {label} minus hourly sum, median difference, 20 years: highest (days)",
+            lambda m=m: T.delta("end_doy", m, "hourly_sum").max(), all_hi)
+    add("Season end, BE-sine minus hourly sum, reference years: lowest P25 (days)",
+        lambda: T.delta("end_doy", "be_sine", "hourly_sum", "p25", REF_YEARS).min(), -1)
+    add("Season end, BE-sine minus hourly sum, reference years: highest P75 (days)",
+        lambda: T.delta("end_doy", "be_sine", "hourly_sum", "p75", REF_YEARS).max(), 1)
+    add("Season end, daily averages minus hourly sum, reference years: lowest P25 (days)",
+        lambda: min(T.delta("end_doy", m, "hourly_sum", "p25", REF_YEARS).min() for m in ("daily_mean", "midpoint")), -3)
+    add("Season end, daily averages minus hourly sum, reference years: highest P75 (days)",
+        lambda: max(T.delta("end_doy", m, "hourly_sum", "p75", REF_YEARS).max() for m in ("daily_mean", "midpoint")), 0)
     add("Consensus end, Mann-Kendall p (median series)", lambda: T.trend("end_doy", "consensus", "median", "mk_p"), 0.14, 2)
 
     def end_iqr(years, col, fn):
@@ -224,6 +309,25 @@ def manuscript_checks(T: Tables):
             add(f"Consensus season length {year}, P75 (days)", lambda y=year: T.nat("season_length", "consensus", y, "p75"), p75, 1)
     add("Consensus season length 2023 above 110 days", lambda: float(T.nat("season_length", "consensus", 2023) > 110), 1)
     add("Consensus season length 2024 above 110 days", lambda: float(T.nat("season_length", "consensus", 2024) > 110), 1)
+    cons_len = lambda: T.nat_series("season_length", "consensus")                                # noqa: E731
+    add("Consensus season length, year of the shortest median", lambda: cons_len().idxmin(), 2005)
+    add("Consensus season length, 2024 minus 2005 (days)", lambda: cons_len().loc[2024] - cons_len().loc[2005], 38)
+    add("Consensus season length, mean of the medians 2005-2009 (days)", lambda: cons_len().loc[2005:2009].mean(), 91.8, 1)
+    add("Consensus season length, mean of the medians 2020-2024 (days)", lambda: cons_len().loc[2020:2024].mean(), 102.0, 1)
+    for year, lo, hi in ((2005, 72, 83), (2024, 112, 115)):
+        add(f"Season length {year}, per-method medians: shortest (days)",
+            lambda y=year: min(T.nat("season_length", m, y) for m in METHODS), lo)
+        add(f"Season length {year}, per-method medians: longest (days)",
+            lambda y=year: max(T.nat("season_length", m, y) for m in METHODS), hi)
+    add("Hourly average minus BE-sine, median difference of 1 or 2 days: number of years",
+        lambda: int(T.delta("season_length", "daily_mean", "be_sine").isin([-1, -2]).sum()), 17)
+    add("Onset, hourly average minus hourly sum, median difference, 20 years: lowest (days)",
+        lambda: T.delta("start_doy", "daily_mean", "hourly_sum").min(), 1)
+    add("Onset, hourly average minus hourly sum, median difference, 20 years: highest (days)",
+        lambda: T.delta("start_doy", "daily_mean", "hourly_sum").max(), 3)
+    for m, label, val in (("be_sine", "BE-sine", 2), ("daily_mean", "hourly average", 3), ("midpoint", "min-max average", 7)):
+        add(f"Onset 2005, {label} minus hourly sum, median difference (days)",
+            lambda m=m: T.delta("start_doy", m, "hourly_sum").loc[2005], val)
 
     for m, label, ref_lo, ref_hi, all_lo, all_hi in (("be_sine", "BE-sine", -2, -1, -2, 0),
                                                      ("daily_mean", "hourly average", -4, -3, -4, -2),
@@ -263,6 +367,13 @@ def manuscript_checks(T: Tables):
             lambda y=year: T.gap("be_sine", y, "pct_ref_cells_between_medians_strict"), between, 1)
     for m, val in (("midpoint", 63.2), ("daily_mean", 66.2), ("be_sine", 68.2), ("hourly_sum", 71.1)):
         add(f"2005: national mean season length, {m} (days)", lambda m=m: T.nat("season_length", m, 2005, "mean"), val, 1)
+
+    def mean_steps_2005():
+        v = [T.nat("season_length", m, 2005, "mean") for m in ("midpoint", "daily_mean", "be_sine", "hourly_sum")]
+        return [b - a for a, b in zip(v, v[1:])]
+
+    add("2005: smallest step between the national means of successive methods (days, whole number)", lambda: min(mean_steps_2005()), 2)
+    add("2005: largest step between the national means of successive methods (days, whole number)", lambda: max(mean_steps_2005()), 3)
 
     def mean_gap():
         return T.nat_series("season_length", "hourly_sum", "mean") - T.nat_series("season_length", "be_sine", "mean")
@@ -343,6 +454,24 @@ def manuscript_checks(T: Tables):
         add(f"Same, % of the cell-years with a season under the hourly sum ({label})",
             lambda m=m: 100.0 * lost(m) / n_season(), pct, 1)
         add(f"Same, all in class 1 under the hourly sum ({label})", lambda m=m: lost_all_in_class1(m), 1)
+    add("Spearman rho of season length, hourly average vs hourly sum", lambda: T.agree("daily_mean", "spearman_rho"), 0.993, 3)
+    add("Spearman rho of season length, min-max average vs hourly sum", lambda: T.agree("midpoint", "spearman_rho"), 0.985, 3)
+    add("Hourly average in a lower class than the hourly sum (%)", lambda: T.agree("daily_mean", "pct_class_lower"), 18.8, 1)
+    add("Hourly average in a higher class than the hourly sum (cell-years)",
+        lambda: int((cells()["class_daily_mean"] > cells()["class_hourly_sum"]).sum()), 0)
+    add("Min-max average in a lower class than the hourly sum (%)", lambda: T.agree("midpoint", "pct_class_lower"), 26.6, 1)
+    add("Min-max average in a higher class than the hourly sum (%)", lambda: T.agree("midpoint", "pct_class_higher"), 0.02, 2)
+    add("Class changed by a daily method, lowest share over the three methods (%, whole number)",
+        lambda: min(100.0 - T.agree(m, "pct_same_class") for m in ("be_sine", "daily_mean", "midpoint")), 10)
+    add("Class changed by a daily method, highest share over the three methods (%, whole number)",
+        lambda: max(100.0 - T.agree(m, "pct_same_class") for m in ("be_sine", "daily_mean", "midpoint")), 27)
+    add("Min-max average minus hourly sum in class 1: median difference (days)", lambda: T.bias("midpoint", 1, "median_delta_days"), -7)
+    add("Min-max average minus hourly sum in class 1: P25 (days)", lambda: T.bias("midpoint", 1, "p25_delta"), -14)
+    add("Min-max average minus hourly sum in class 1: P75 (days)", lambda: T.bias("midpoint", 1, "p75_delta"), -4)
+    add("Min-max average minus hourly sum in classes 2-5: most negative median difference (days)",
+        lambda: min(T.bias("midpoint", c, "median_delta_days") for c in (2, 3, 4, 5)), -6)
+    add("Min-max average minus hourly sum in classes 2-5: least negative median difference (days)",
+        lambda: max(T.bias("midpoint", c, "median_delta_days") for c in (2, 3, 4, 5)), -4)
     add("Season under BE-sine, none under the hourly sum (cell-years)", lambda: gained("be_sine"), 29)
     add("Season under the hourly average, none under the hourly sum (cell-years)", lambda: gained("daily_mean"), 0)
     add("Season under the min-max average, none under the hourly sum (cell-years)", lambda: gained("midpoint"), 0)
